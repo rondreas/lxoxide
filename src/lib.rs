@@ -64,7 +64,7 @@ mod tests {
             0x79, 0x00,               // "nexus 2000 by The Foundry\0"
         ];
 
-        let expected = Version{major: 16, minor: 0, application: b"nexus 2000 by The Foundry".to_vec()};
+        let expected = Version{major: 16, minor: 0, application: b"nexus 2000 by The Foundry\0".to_vec()};
         let result = Version::try_from(data);
 
         assert_eq!(Ok(expected), result);
