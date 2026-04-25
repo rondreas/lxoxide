@@ -6,11 +6,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let file = LuxologyFile::from_path(&path)?;
 
     let header = &file.header;
-    println!("FORM size: {} bytes, type: {:?}", header.size, header.kind);
+    println!("{:?} file content size: {} bytes", header.kind, header.size);
 
-    let mut offset: u64 = 0;
+    let mut offset: u64 = 12;  // after reading iff header, we have read 12 bytes
     for chunk in &file.chunks {
-        println!("{} size: {}", chunk.kind, chunk.size);
+        println!("{} chunk at position: {}, size: {}", chunk.kind, offset, chunk.size + 8);
+        offset += (chunk.size as u64 + 8);
     }
 
     Ok(())
