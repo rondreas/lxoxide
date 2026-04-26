@@ -1,7 +1,12 @@
 use lxoxide::LuxologyFile;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = std::path::PathBuf::from("/home/andreas/Documents/lxo/cube.lxo");
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 2 {
+        eprintln!("Usage: {} <path>", args[0]);
+        std::process::exit(1);
+    }
+    let path = std::path::PathBuf::from(&args[1]);
 
     let file = LuxologyFile::from_path(&path)?;
 
