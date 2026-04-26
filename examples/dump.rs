@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut offset: u64 = 12;  // after reading iff header, we have read 12 bytes
     for chunk in &file.chunks {
         println!("{} chunk at position: {}, size: {}", chunk.kind, offset, chunk.size + 8);
-        offset += (chunk.size as u64 + 8);
+        offset += chunk.size as u64 + 8;
     }
 
     Ok(())
