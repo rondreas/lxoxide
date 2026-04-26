@@ -91,6 +91,7 @@ pub struct Chunk {
 pub enum ParseError {
     InvalidMagicNumber,
     SizeMismatch,
+    InvalidSize,
     NonSupportedExtension,
     BufferTooShort,
     MissingNullTerminator,
@@ -104,6 +105,7 @@ impl PartialEq for ParseError {
             (self, other),
             (ParseError::InvalidMagicNumber, ParseError::InvalidMagicNumber)
                 | (ParseError::SizeMismatch, ParseError::SizeMismatch)
+                | (ParseError::InvalidSize, ParseError::InvalidSize)
                 | (ParseError::NonSupportedExtension, ParseError::NonSupportedExtension)
                 | (ParseError::BufferTooShort, ParseError::BufferTooShort)
                 | (ParseError::MissingNullTerminator, ParseError::MissingNullTerminator)
@@ -118,6 +120,7 @@ impl fmt::Display for ParseError {
         match self {
             ParseError::InvalidMagicNumber => write!(f, "IFF files must start with FORM"),
             ParseError::SizeMismatch => write!(f, "File size does not match reported size in header"),
+            ParseError::InvalidSize => write!(f, "Invalid size for fixed size chunk data"),
             ParseError::NonSupportedExtension => write!(f, "File type not supported"),
             ParseError::BufferTooShort => write!(f, "Buffer is too short for the data to be parsed"),
             ParseError::MissingNullTerminator => write!(f, "Strings must be null terminated"),
@@ -254,6 +257,7 @@ impl TryFrom<Vec<u8>> for Version {
     }
 }
 
+// The application version matches up with the nexus2000.dll which is used in Modo 16
 #[derive(Debug, PartialEq)]
 pub struct ApplicationVersion {
     base: u32,
@@ -283,6 +287,42 @@ impl TryFrom<Vec<u8>> for ApplicationVersion {
         let application = &vec[16..];
 
         Ok(ApplicationVersion { base, major, minor, build, application: application.to_vec() })
+    }
+}
+
+#[derive(Debug, PartialEq)]
+#[repr(u32)]
+pub enum Encoding {
+    Default,
+    Ansi,
+    Utf8,
+    ShiftJis,
+    EucJp,
+    EucKr,
+    Gb2312,
+    Big5
+}
+
+impl TryFrom<Vec<u8>> for Encoding {
+    type Error = ParseError;
+    fn try_from(vec: Vec<u8>) -> Result<Self, Self::Error> {
+        if vec.len() != 4 {
+            return Err(Self::Error::InvalidSize);
+        }
+
+        let value = u32::from_be_bytes([vec[0], vec[1], vec[2], vec[3]]);
+
+        match value {
+            0 => Ok(Encoding::Default),
+            1 => Ok(Encoding::Ansi),
+            2 => Ok(Encoding::Utf8),
+            3 => Ok(Encoding::ShiftJis),
+            4 => Ok(Encoding::EucJp),
+            5 => Ok(Encoding::EucKr),
+            6 => Ok(Encoding::Gb2312),
+            7 => Ok(Encoding::Big5),
+            _ => Err(Self::Error::InvalidSize),
+        }
     }
 }
 
@@ -328,6 +368,13 @@ mod tests {
 
         let result = ApplicationVersion::try_from(data);
         assert_eq!(Ok(expected), result);
+    }
+
+    #[test]
+    fn parse_encoding_chunk() {
+        let data: Vec<u8> = vec![0x00, 0x00, 0x00, 0x02];
+        let encoding = Encoding::try_from(data);
+        assert_eq!(encoding, Ok(Encoding::Utf8));
     }
 
     #[test]
