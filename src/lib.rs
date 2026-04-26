@@ -254,6 +254,38 @@ impl TryFrom<Vec<u8>> for Version {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct ApplicationVersion {
+    base: u32,
+    major: u32,
+    minor: u32,
+    build: u32,
+    application: Vec<u8>
+}
+
+impl TryFrom<Vec<u8>> for ApplicationVersion {
+    type Error = ParseError;
+    fn try_from(vec: Vec<u8>) -> Result<Self, Self::Error> {
+        // The APPV chunk has to contain AT LEAST 18 bytes...
+        if vec.len() < 18 {
+            return Err(Self::Error::BufferTooShort);
+        }
+
+        // As always, it has to be aligend to even number of bytes...
+        if vec.len() % 2 != 0 {
+            return Err(Self::Error::UnalignedBytes);
+        }
+
+        let base = u32::from_be_bytes(vec[0..4].try_into().unwrap());
+        let major = u32::from_be_bytes(vec[4..8].try_into().unwrap());
+        let minor = u32::from_be_bytes(vec[8..12].try_into().unwrap());
+        let build = u32::from_be_bytes(vec[12..16].try_into().unwrap());
+        let application = &vec[16..];
+
+        Ok(ApplicationVersion { base, major, minor, build, application: application.to_vec() })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,6 +304,29 @@ mod tests {
         let expected = Version{major: 16, minor: 0, application: b"nexus 2000 by The Foundry\0".to_vec()};
         let result = Version::try_from(data);
 
+        assert_eq!(Ok(expected), result);
+    }
+
+    #[test]
+    fn parse_application_version_chunk() {
+        let data: Vec<u8> = vec![
+            0x00, 0x00, 0x07, 0xd0,  // base = 2000
+            0x00, 0x00, 0x07, 0xd0,  // major = 2000
+            0x00, 0x00, 0x00, 0x00,  // minor = 0
+            0x00, 0x0a, 0x17, 0xc6,  // build = 663110
+            0x4d, 0x6f, 0x64, 0x6f, 0x20, 0x31, 0x36, 0x2e,
+            0x30, 0x76, 0x31, 0x00,     // "Modo 16.0v1\0"
+        ];
+
+        let expected = ApplicationVersion {
+            base: 2000,
+            major: 2000,
+            minor: 0,
+            build: 661446,
+            application: b"Modo 16.0v1\0".to_vec(),
+        };
+
+        let result = ApplicationVersion::try_from(data);
         assert_eq!(Ok(expected), result);
     }
 
