@@ -70,6 +70,8 @@ impl Extension {
 }
 
 
+pub mod geometry;
+
 // IFF header, 12 bytes at the start of the file
 pub struct Header {
     pub form: ID4,
