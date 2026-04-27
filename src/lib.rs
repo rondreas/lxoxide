@@ -7,23 +7,23 @@ use std::path::Path as StdPath;
 pub struct ID4(u32);
 
 impl ID4 {
-    pub const fn from_str(s: &str) -> Self {
-        let b = s.as_bytes();
-
-        assert!(b.len() == 4, "ID4 must be 4 bytes");
-        assert!((b[0].is_ascii() && b[1].is_ascii() && b[2].is_ascii() && b[3].is_ascii()), "All bytes must be valid ascii");
-
-        let b0 = b[0] as u32;
-        let b1 = b[1] as u32;
-        let b2 = b[2] as u32;
-        let b3 = b[3] as u32;
-
-        ID4(b0 << 24 | b1 << 16 | b2 << 8 | b3 )
+    pub const fn new(val: u32) -> Self {
+        ID4(val)
     }
 
-    pub const fn from_bytes(b: [u8; 4]) -> Self {
-        assert!((b[0].is_ascii() && b[1].is_ascii() && b[2].is_ascii() && b[3].is_ascii()), "All bytes must be valid ascii");
-        ID4((b[0] as u32) << 24 | (b[1] as u32) << 16 | (b[2] as u32) << 8 | b[3] as u32)
+    pub fn from_str(s: &str) -> Result<Self, ParseError> {
+        let b = s.as_bytes();
+        if b.len() != 4 {
+            return Err(ParseError::InvalidID4);
+        }
+        Self::from_bytes([b[0], b[1], b[2], b[3]])
+    }
+
+    pub fn from_bytes(b: [u8; 4]) -> Result<Self, ParseError> {
+        if !b.iter().all(|&x| x >= 0x20 && x <= 0x7E) {
+            return Err(ParseError::InvalidID4);
+        }
+        Ok(ID4((b[0] as u32) << 24 | (b[1] as u32) << 16 | (b[2] as u32) << 8 | b[3] as u32))
     }
 
     pub const fn to_bytes(self) -> [u8; 4] {
@@ -45,7 +45,7 @@ impl fmt::Display for ID4 {
 }
 
 
-const FORM: ID4 = ID4::from_str("FORM");
+const FORM: ID4 = ID4::new(0x464F524D);
 
 
 #[repr(u32)]
@@ -90,6 +90,7 @@ pub struct Chunk {
 #[derive(Debug)]
 pub enum ParseError {
     InvalidMagicNumber,
+    InvalidID4,
     SizeMismatch,
     InvalidSize,
     NonSupportedExtension,
@@ -104,6 +105,7 @@ impl PartialEq for ParseError {
         matches!(
             (self, other),
             (ParseError::InvalidMagicNumber, ParseError::InvalidMagicNumber)
+                | (ParseError::InvalidID4, ParseError::InvalidID4)
                 | (ParseError::SizeMismatch, ParseError::SizeMismatch)
                 | (ParseError::InvalidSize, ParseError::InvalidSize)
                 | (ParseError::NonSupportedExtension, ParseError::NonSupportedExtension)
@@ -119,6 +121,7 @@ impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ParseError::InvalidMagicNumber => write!(f, "IFF files must start with FORM"),
+            ParseError::InvalidID4 => write!(f, "ID4 must be 4 printable ASCII characters"),
             ParseError::SizeMismatch => write!(f, "File size does not match reported size in header"),
             ParseError::InvalidSize => write!(f, "Invalid size for fixed size chunk data"),
             ParseError::NonSupportedExtension => write!(f, "File type not supported"),
@@ -164,7 +167,7 @@ impl LuxologyFile {
         let mut buf = [0u8; 12];
         reader.read_exact(&mut buf).map_err(ParseError::IoError)?;
 
-        let form = ID4::from_bytes([buf[0], buf[1], buf[2], buf[3]]);
+        let form = ID4::from_bytes([buf[0], buf[1], buf[2], buf[3]])?;
         if form != FORM {
             return Err(ParseError::InvalidMagicNumber);
         }
@@ -198,7 +201,7 @@ impl LuxologyFile {
                 chunk_header[1],
                 chunk_header[2],
                 chunk_header[3],
-            ]);
+            ])?;
             let chunk_size =
                 u32::from_be_bytes([chunk_header[4], chunk_header[5], chunk_header[6], chunk_header[7]]);
 
@@ -379,25 +382,40 @@ mod tests {
 
     #[test]
     fn id4_display() {
-        let id = ID4::from_str("TEST");
+        let id = ID4::from_str("TEST").unwrap();
         assert_eq!(format!("{}", id), "TEST");
         
-        let id2 = ID4::from_bytes([b'L', b'X', b'O', b'B']);
+        let id2 = ID4::from_bytes([b'L', b'X', b'O', b'B']).unwrap();
         assert_eq!(format!("{}", id2), "LXOB");
     }
 
     #[test]
     fn id4_to_bytes() {
-        let id = ID4::from_str("TEST");
+        let id = ID4::from_str("TEST").unwrap();
         assert_eq!(id.to_bytes(), [b'T', b'E', b'S', b'T']);
         
-        let id2 = ID4::from_bytes([b'L', b'X', b'O', b'B']);
+        let id2 = ID4::from_bytes([b'L', b'X', b'O', b'B']).unwrap();
         assert_eq!(id2.to_bytes(), [b'L', b'X', b'O', b'B']);
     }
 
     #[test]
-    #[should_panic(expected = "All bytes must be valid ascii")]
     fn id4_from_bytes_non_ascii() {
-        ID4::from_bytes([0xFF, 0xFF, 0xFF, 0xFF]);
+        let result = ID4::from_bytes([0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(result, Err(ParseError::InvalidID4));
+    }
+
+    #[test]
+    fn id4_from_bytes_control_char() {
+        let result = ID4::from_bytes([0x00, 0x41, 0x42, 0x43]);
+        assert_eq!(result, Err(ParseError::InvalidID4));
+    }
+
+    #[test]
+    fn id4_from_str_wrong_length() {
+        let result = ID4::from_str("TOO_LONG");
+        assert_eq!(result, Err(ParseError::InvalidID4));
+        
+        let result_short = ID4::from_str("SHO");
+        assert_eq!(result_short, Err(ParseError::InvalidID4));
     }
 }
