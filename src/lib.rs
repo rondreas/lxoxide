@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::fs::File;
 use std::io::{self, BufReader, Read, Seek};
 use std::path::Path as StdPath;
+use binrw::{BinRead, BinReaderExt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ID4(u32);
@@ -50,16 +51,28 @@ impl fmt::Display for ID4 {
 }
 
 
-const FORM: ID4 = ID4::new(0x464F524D);
 
-
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[br(repr = u32)]
 pub enum Extension {
     LXOB = 0x4c584f42,  // scene file
     LXPR = 0x4c585052,  // preset assembly
     LXPE = 0x4c585045,  // preset environment
     LXPM = 0x4c58504d,  // preset item
+}
+
+impl TryFrom<u32> for Extension {
+    type Error = ParseError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0x4c584f42 => Ok(Extension::LXOB),
+            0x4c585052 => Ok(Extension::LXPR),
+            0x4c585045 => Ok(Extension::LXPE),
+            0x4c58504d => Ok(Extension::LXPM),
+            _ => Err(ParseError::InvalidID4),
+        }
+    }
 }
 
 impl Extension {
@@ -77,13 +90,15 @@ impl Extension {
 
 pub mod geometry;
 
-// IFF header, 12 bytes at the start of the file
+#[derive(BinRead, Debug)]
+#[br(magic = b"FORM")]
 pub struct Header {
-    pub form: ID4,
+    #[br(big)]
     pub size: u32,
-    pub kind: Extension,
-}
 
+    #[br(big, map = Extension::from)]
+    pub kind: Extension
+}
 
 
 // Chunks are the blocks of data contained in the file
@@ -164,27 +179,10 @@ impl LuxologyFile {
         let file = File::open(path).map_err(ParseError::IoError)?;
         let mut reader = BufReader::new(file);
 
-        let header = Self::parse_header(&mut reader)?;
+        let header: Header = reader.read_be().unwrap();
         let chunks = Self::parse_chunks(&mut reader, header.size)?;
 
         Ok(LuxologyFile::new(header, chunks))
-    }
-
-    fn parse_header<R: Read>(reader: &mut R) -> Result<Header, ParseError> {
-        let mut buf = [0u8; 12];
-        reader.read_exact(&mut buf).map_err(ParseError::IoError)?;
-
-        let form = ID4::from_bytes([buf[0], buf[1], buf[2], buf[3]])?;
-        if form != FORM {
-            return Err(ParseError::InvalidMagicNumber);
-        }
-
-        let size = u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
-
-        let kind_raw = u32::from_be_bytes([buf[8], buf[9], buf[10], buf[11]]);
-        let kind = Extension::from_u32(kind_raw).ok_or(ParseError::NonSupportedExtension)?;
-
-        Ok(Header { form, size, kind })
     }
 
     fn parse_chunks<R: Read + Seek>(
@@ -338,6 +336,24 @@ impl TryFrom<Vec<u8>> for Encoding {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn parse_lxo_header() {
+        let mut reader = Cursor::new(b"FORM\x00\x00\x61\x6aLXOB");
+        let header: Header = reader.read_be().unwrap();
+
+        assert_eq!(header.kind, Extension::LXOB);
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_invalid_magic_header() {
+        let mut reader = Cursor::new(b"BAD \x00\x00\x61\x6aLXOB");
+        let header: Header = reader.read_be().unwrap();
+
+        assert_eq!(header.kind, Extension::LXOB);
+    }
 
     #[test]
     fn parse_version_chunk() {
