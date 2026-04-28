@@ -1,4 +1,5 @@
 use std::fmt;
+use std::str::FromStr;
 use std::fs::File;
 use std::io::{self, BufReader, Read, Seek};
 use std::path::Path as StdPath;
@@ -11,16 +12,9 @@ impl ID4 {
         ID4(val)
     }
 
-    pub fn from_str(s: &str) -> Result<Self, ParseError> {
-        let b = s.as_bytes();
-        if b.len() != 4 {
-            return Err(ParseError::InvalidID4);
-        }
-        Self::from_bytes([b[0], b[1], b[2], b[3]])
-    }
-
     pub fn from_bytes(b: [u8; 4]) -> Result<Self, ParseError> {
-        if !b.iter().all(|&x| x >= 0x20 && x <= 0x7E) {
+        // FourCC should be 4 ascii printable bytes
+        if !b.iter().all(|&x| (0x20..=0x7E).contains(&x)) {
             return Err(ParseError::InvalidID4);
         }
         Ok(ID4((b[0] as u32) << 24 | (b[1] as u32) << 16 | (b[2] as u32) << 8 | b[3] as u32))
@@ -34,6 +28,17 @@ impl ID4 {
             (val >> 8) as u8,
             val as u8,
         ]
+    }
+}
+
+impl FromStr for ID4 {
+    type Err = ParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let b = s.as_bytes();
+        if b.len() != 4 {
+            return Err(ParseError::InvalidID4);
+        }
+        Self::from_bytes([b[0], b[1], b[2], b[3]])
     }
 }
 
@@ -215,10 +220,9 @@ impl LuxologyFile {
             // IFF spec: odd-sized chunks are padded with a single byte
             if chunk_size % 2 != 0 {
                 let mut padding = [0u8; 1];
-                if let Err(e) = reader.read_exact(&mut padding) {
-                    if e.kind() != io::ErrorKind::UnexpectedEof {
+                if let Err(e) = reader.read_exact(&mut padding)
+                    && e.kind() != io::ErrorKind::UnexpectedEof {
                         return Err(ParseError::IoError(e));
-                    }
                 }
             }
 
@@ -250,7 +254,7 @@ impl TryFrom<Vec<u8>> for Version {
             return Err(Self::Error::BufferTooShort);
         }
 
-        if vec.len() % 2 != 0 {
+        if !vec.len().is_multiple_of(2) {
             return Err(Self::Error::UnalignedBytes);
         }
 
@@ -281,7 +285,7 @@ impl TryFrom<Vec<u8>> for ApplicationVersion {
         }
 
         // As always, it has to be aligend to even number of bytes...
-        if vec.len() % 2 != 0 {
+        if !vec.len().is_multiple_of(2) {
             return Err(Self::Error::UnalignedBytes);
         }
 

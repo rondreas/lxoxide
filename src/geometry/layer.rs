@@ -85,8 +85,8 @@ impl TryFrom<Vec<u8>> for Layer {
         offset += 12;
 
         let mut unused = [0u32; 6];
-        for i in 0..6 {
-            unused[i] = u32::from_be_bytes([
+        for x in &mut unused {
+            *x = u32::from_be_bytes([
                 data[offset],
                 data[offset + 1],
                 data[offset + 2],
