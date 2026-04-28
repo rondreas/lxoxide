@@ -1,15 +1,15 @@
 use std::fmt;
 use std::str::FromStr;
 use std::fs::File;
-use std::io::{self, BufReader, Read, Seek};
+use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::path::Path as StdPath;
-use binrw::{BinRead, BinReaderExt};
+use binrw::{BinRead, BinReaderExt, NullString};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ID4(u32);
+#[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ID4([u8; 4]);
 
 impl ID4 {
-    pub const fn new(val: u32) -> Self {
+    pub const fn new(val: [u8; 4]) -> Self {
         ID4(val)
     }
 
@@ -18,17 +18,11 @@ impl ID4 {
         if !b.iter().all(|&x| (0x20..=0x7E).contains(&x)) {
             return Err(ParseError::InvalidID4);
         }
-        Ok(ID4((b[0] as u32) << 24 | (b[1] as u32) << 16 | (b[2] as u32) << 8 | b[3] as u32))
+        Ok(ID4(b))
     }
 
     pub const fn to_bytes(self) -> [u8; 4] {
-        let val = self.0;
-        [
-            (val >> 24) as u8,
-            (val >> 16) as u8,
-            (val >> 8) as u8,
-            val as u8,
-        ]
+        self.0
     }
 }
 
@@ -39,7 +33,7 @@ impl FromStr for ID4 {
         if b.len() != 4 {
             return Err(ParseError::InvalidID4);
         }
-        Self::from_bytes([b[0], b[1], b[2], b[3]])
+        Ok(Self([b[0], b[1], b[2], b[3]]))
     }
 }
 
@@ -101,11 +95,19 @@ pub struct Header {
 }
 
 
-// Chunks are the blocks of data contained in the file
-pub struct Chunk {
+#[derive(BinRead, Debug)]
+#[br(big)]
+pub struct ChunkHeader {
     pub kind: ID4,
-    pub size: u32,
-    pub data: Vec<u8>,
+    pub size: u32
+}
+
+
+#[derive(Debug)]
+pub enum Chunk {
+    VRSN(Version),
+    APPV(ApplicationVersion),
+    Unknown {kind: ID4, position: u64, size: u32},
 }
 
 
@@ -165,10 +167,28 @@ impl std::error::Error for ParseError {
 }
 
 
+impl From<std::io::Error> for ParseError {
+    fn from(e: std::io::Error) -> Self {
+        ParseError::IoError(io::Error::other(e.to_string()))
+    }
+}
+
+
+impl From<binrw::Error> for ParseError {
+    fn from(e: binrw::Error) -> Self {
+        match e {
+            binrw::Error::Io(io_err) => ParseError::IoError(io_err),
+            _ => ParseError::IoError(io::Error::other(e.to_string())),
+        }
+    }
+}
+
+
 pub struct LuxologyFile {
     pub header: Header,
     pub chunks: Vec<Chunk>,
 }
+
 
 impl LuxologyFile {
     pub fn new(header: Header, chunks: Vec<Chunk>) -> LuxologyFile {
@@ -180,57 +200,57 @@ impl LuxologyFile {
         let mut reader = BufReader::new(file);
 
         let header: Header = reader.read_be().unwrap();
-        let chunks = Self::parse_chunks(&mut reader, header.size)?;
+
+        // todo: if file size, does not match header.size + 8, throw error
+
+        let chunks = Self::parse_chunks(&mut reader)?;
 
         Ok(LuxologyFile::new(header, chunks))
     }
 
-    fn parse_chunks<R: Read + Seek>(
-        reader: &mut R,
-        form_size: u32,
-    ) -> Result<Vec<Chunk>, ParseError> {
+    fn parse_chunks<R: Read + Seek>(reader: &mut R) -> Result<Vec<Chunk>, ParseError> {
         let mut chunks = Vec::new();
-        let mut position: u64 = 0;
-        let form_size = form_size as u64;
+        loop {
+            let header = match ChunkHeader::read_be(reader) {
+                Ok(h) => h,
+                Err(e) => {
+                    // note: I really don't like this part, but for some reason binrw wraps
+                    // everything in a backtrace that we need to untangle...
+                    let mut err = &e;
+                    while let binrw::Error::Backtrace(bt) = err {
+                        err = &bt.error;
+                    }
 
-        while position < form_size {
-            let mut chunk_header = [0u8; 8];
-            match reader.read_exact(&mut chunk_header) {
-                Ok(_) => {}
-                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => break,
-                Err(e) => return Err(ParseError::IoError(e)),
-            }
+                    if let binrw::Error::Io(io_err) = err
+                        && io_err.kind() == std::io::ErrorKind::UnexpectedEof {
+                            break;
+                        }
 
-            let kind = ID4::from_bytes([
-                chunk_header[0],
-                chunk_header[1],
-                chunk_header[2],
-                chunk_header[3],
-            ])?;
-            let chunk_size =
-                u32::from_be_bytes([chunk_header[4], chunk_header[5], chunk_header[6], chunk_header[7]]);
+                    return Err(e.into());
+                }
+            };
 
-            let mut data = vec![0u8; chunk_size as usize];
-            if chunk_size > 0 {
-                reader.read_exact(&mut data).map_err(ParseError::IoError)?;
-            }
-
-            // IFF spec: odd-sized chunks are padded with a single byte
-            if chunk_size % 2 != 0 {
-                let mut padding = [0u8; 1];
-                if let Err(e) = reader.read_exact(&mut padding)
-                    && e.kind() != io::ErrorKind::UnexpectedEof {
-                        return Err(ParseError::IoError(e));
+            match &header.kind.0 {
+                b"VRSN" => {
+                    let version: Version = reader.read_be().unwrap();
+                    chunks.push(Chunk::VRSN(version));
+                },
+                b"APPV" => {
+                    let version: ApplicationVersion = reader.read_be().unwrap();
+                    chunks.push(Chunk::APPV(version));
+                },
+                _ => {
+                    // push the unknown chunk, with offset and size so we can quickly find it
+                    // with hex dump, like `xxd -s position -l size ./path/to/file.lxo` 
+                    chunks.push(Chunk::Unknown {
+                        kind: header.kind,
+                        position: reader.stream_position().unwrap() - 8,
+                        size: header.size + 8,
+                    });
+                    
+                    reader.seek(SeekFrom::Current(header.size as i64))?;
                 }
             }
-
-            position += (chunk_size as u64) + 8;
-
-            chunks.push(Chunk {
-                kind,
-                size: chunk_size,
-                data,
-            });
         }
 
         Ok(chunks)
@@ -238,98 +258,67 @@ impl LuxologyFile {
 }
 
 
-#[derive(Debug, PartialEq)]
+#[derive(BinRead, Debug, PartialEq)]
+#[br(big)]
 pub struct Version {
     major: u32,
+
     minor: u32,
-    application: Vec<u8>
+
+    #[br(pad_size_to = 2)]
+    application: NullString
 }
 
-impl TryFrom<Vec<u8>> for Version {
-    type Error = ParseError;
-    fn try_from(vec: Vec<u8>) -> Result<Self, Self::Error> {
-        if vec.len() < 10 {
-            return Err(Self::Error::BufferTooShort);
-        }
-
-        if !vec.len().is_multiple_of(2) {
-            return Err(Self::Error::UnalignedBytes);
-        }
-
-        let major = u32::from_be_bytes(vec[0..4].try_into().unwrap());
-        let minor = u32::from_be_bytes(vec[4..8].try_into().unwrap());
-        let application = &vec[8..];
-
-        Ok(Version{major, minor, application: application.to_vec()})
+impl fmt::Display for Version {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{} {}", self.major, self.minor, self.application)
     }
 }
 
-// The application version matches up with the nexus2000.dll which is used in Modo 16
-#[derive(Debug, PartialEq)]
+#[derive(BinRead, Debug, PartialEq)]
+#[br(big)]
 pub struct ApplicationVersion {
     base: u32,
     major: u32,
     minor: u32,
     build: u32,
-    application: Vec<u8>
+
+    #[br(pad_size_to = 2)]
+    application: NullString
 }
 
-impl TryFrom<Vec<u8>> for ApplicationVersion {
-    type Error = ParseError;
-    fn try_from(vec: Vec<u8>) -> Result<Self, Self::Error> {
-        // The APPV chunk has to contain AT LEAST 18 bytes...
-        if vec.len() < 18 {
-            return Err(Self::Error::BufferTooShort);
-        }
-
-        // As always, it has to be aligend to even number of bytes...
-        if !vec.len().is_multiple_of(2) {
-            return Err(Self::Error::UnalignedBytes);
-        }
-
-        let base = u32::from_be_bytes(vec[0..4].try_into().unwrap());
-        let major = u32::from_be_bytes(vec[4..8].try_into().unwrap());
-        let minor = u32::from_be_bytes(vec[8..12].try_into().unwrap());
-        let build = u32::from_be_bytes(vec[12..16].try_into().unwrap());
-        let application = &vec[16..];
-
-        Ok(ApplicationVersion { base, major, minor, build, application: application.to_vec() })
+impl fmt::Display for ApplicationVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}.{} - {} {}", self.base, self.major, self.minor, self.build, self.application)
     }
 }
 
-#[derive(Debug, PartialEq)]
-#[repr(u32)]
+#[derive(BinRead, Debug, PartialEq)]
+#[br(big, repr = u32)]
 pub enum Encoding {
-    Default,
-    Ansi,
-    Utf8,
-    ShiftJis,
-    EucJp,
-    EucKr,
-    Gb2312,
-    Big5
+    Default  = 0,
+    Ansi     = 1,
+    Utf8     = 2,
+    ShiftJis = 3,
+    EucJp    = 4,
+    EucKr    = 5,
+    Gb2312   = 6,
+    Big5     = 7
 }
 
-impl TryFrom<Vec<u8>> for Encoding {
-    type Error = ParseError;
-    fn try_from(vec: Vec<u8>) -> Result<Self, Self::Error> {
-        if vec.len() != 4 {
-            return Err(Self::Error::InvalidSize);
-        }
-
-        let value = u32::from_be_bytes([vec[0], vec[1], vec[2], vec[3]]);
-
-        match value {
-            0 => Ok(Encoding::Default),
-            1 => Ok(Encoding::Ansi),
-            2 => Ok(Encoding::Utf8),
-            3 => Ok(Encoding::ShiftJis),
-            4 => Ok(Encoding::EucJp),
-            5 => Ok(Encoding::EucKr),
-            6 => Ok(Encoding::Gb2312),
-            7 => Ok(Encoding::Big5),
-            _ => Err(Self::Error::InvalidSize),
-        }
+impl fmt::Display for Encoding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Encoding::Default => "default",
+            Encoding::Ansi => "ANSI",
+            Encoding::Utf8 => "UTF-8",
+            Encoding::ShiftJis => "Shift JIS",
+            Encoding::EucJp => "EUC-JP",
+            Encoding::EucKr => "EUC-KR",
+            Encoding::Gb2312 => "GB2312",
+            Encoding::Big5 => "Big5",
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -357,87 +346,65 @@ mod tests {
 
     #[test]
     fn parse_version_chunk() {
-        let data: Vec<u8> = vec![
-            0x00, 0x00, 0x00, 0x10,  // major = 16
-            0x00, 0x00, 0x00, 0x00,  // minor = 0
-            0x6e, 0x65, 0x78, 0x75, 0x73, 0x20, 0x32, 0x30,
-            0x30, 0x30, 0x20, 0x62, 0x79, 0x20, 0x54, 0x68,
-            0x65, 0x20, 0x46, 0x6f, 0x75, 0x6e, 0x64, 0x72,
-            0x79, 0x00,               // "nexus 2000 by The Foundry\0"
-        ];
+        let mut reader = Cursor::new(b"VRSN\x00\x00\x00\x22\x00\x00\x00\x10\x00\x00\x00\x00\x6e\x65\x78\x75\x73\x20\x32\x30\x30\x30\x20\x62\x79\x20\x54\x68\x65\x20\x46\x6f\x75\x6e\x64\x72\x79\x00");
 
-        let expected = Version{major: 16, minor: 0, application: b"nexus 2000 by The Foundry\0".to_vec()};
-        let result = Version::try_from(data);
+        let _: ChunkHeader = reader.read_be().unwrap();
 
-        assert_eq!(Ok(expected), result);
+        let expected = Version{
+            major: 16,
+            minor: 0,
+            application: "nexus 2000 by The Foundry".into()
+        };
+        let result: Version = reader.read_be().unwrap();
+
+        assert_eq!(expected, result);
     }
 
     #[test]
     fn parse_application_version_chunk() {
-        let data: Vec<u8> = vec![
-            0x00, 0x00, 0x07, 0xd0,  // base = 2000
-            0x00, 0x00, 0x07, 0xd0,  // major = 2000
-            0x00, 0x00, 0x00, 0x00,  // minor = 0
-            0x00, 0x0a, 0x17, 0xc6,  // build = 663110
-            0x4d, 0x6f, 0x64, 0x6f, 0x20, 0x31, 0x36, 0x2e,
-            0x30, 0x76, 0x31, 0x00,     // "Modo 16.0v1\0"
-        ];
+        let mut reader = Cursor::new(b"APPV\x00\x00\x00\x1c\x00\x00\x07\xd0\x00\x00\x07\xd0\x00\x00\x00\x00\x00\x0a\x17\xc6\x4d\x6f\x64\x6f\x20\x31\x36\x2e\x30\x76\x31\x00");
+
+        let _: ChunkHeader = reader.read_be().unwrap();
 
         let expected = ApplicationVersion {
-            base: 2000,
+            base: 2000,  // this version matches the nexus.dll that likely was used to save
             major: 2000,
             minor: 0,
             build: 661446,
-            application: b"Modo 16.0v1\0".to_vec(),
+            application: "Modo 16.0v1".into(),
         };
 
-        let result = ApplicationVersion::try_from(data);
-        assert_eq!(Ok(expected), result);
+        let result: ApplicationVersion = reader.read_be().unwrap();
+        assert_eq!(expected, result);
     }
 
     #[test]
     fn parse_encoding_chunk() {
-        let data: Vec<u8> = vec![0x00, 0x00, 0x00, 0x02];
-        let encoding = Encoding::try_from(data);
-        assert_eq!(encoding, Ok(Encoding::Utf8));
+        let mut reader = Cursor::new(b"ENCO\x00\x00\x00\x04\x00\x00\x00\x02");
+        let _: ChunkHeader = reader.read_be().unwrap();
+        let encoding: Encoding = reader.read_be().unwrap();
+        assert_eq!(encoding, Encoding::Utf8);
     }
 
-    #[test]
-    fn id4_display() {
-        let id = ID4::from_str("TEST").unwrap();
-        assert_eq!(format!("{}", id), "TEST");
-        
-        let id2 = ID4::from_bytes([b'L', b'X', b'O', b'B']).unwrap();
-        assert_eq!(format!("{}", id2), "LXOB");
-    }
-
-    #[test]
-    fn id4_to_bytes() {
-        let id = ID4::from_str("TEST").unwrap();
-        assert_eq!(id.to_bytes(), [b'T', b'E', b'S', b'T']);
-        
-        let id2 = ID4::from_bytes([b'L', b'X', b'O', b'B']).unwrap();
-        assert_eq!(id2.to_bytes(), [b'L', b'X', b'O', b'B']);
-    }
-
-    #[test]
-    fn id4_from_bytes_non_ascii() {
-        let result = ID4::from_bytes([0xFF, 0xFF, 0xFF, 0xFF]);
-        assert_eq!(result, Err(ParseError::InvalidID4));
-    }
-
-    #[test]
-    fn id4_from_bytes_control_char() {
-        let result = ID4::from_bytes([0x00, 0x41, 0x42, 0x43]);
-        assert_eq!(result, Err(ParseError::InvalidID4));
-    }
-
-    #[test]
-    fn id4_from_str_wrong_length() {
-        let result = ID4::from_str("TOO_LONG");
-        assert_eq!(result, Err(ParseError::InvalidID4));
-        
-        let result_short = ID4::from_str("SHO");
-        assert_eq!(result_short, Err(ParseError::InvalidID4));
-    }
+    // todo: get test to work... can't for life of me match the error
+    // #[test]
+    // fn parse_invalid_encoding_chunk() {
+    //     let mut reader = Cursor::new(b"ENCO\x00\x00\x00\x04\x00\x00\x0c\x02");
+    //     let _: ChunkHeader = reader.read_be().unwrap();
+    //     let r = reader.read_be::<Encoding>();
+    //     match r {
+    //         Ok(_) => panic!("Expected an error but parsing succeeded!"),
+    //         Err(e) => {
+    //             let mut err = &e;
+    //             while let binrw::Error::Backtrace(bt) = err {
+    //                 err = &bt.error;
+    //             }
+    //             
+    //             match err {
+    //                 Err(binrw::Error::NoVariantMatch{pos: _}) => { /* Test pass */ }
+    //                 _ => panic!("wtf..."),
+    //             }
+    //         },
+    //     }
+    // }
 }

@@ -1,6 +1,6 @@
-use std::convert::TryFrom;
-use crate::ParseError;
 use bitflags::bitflags;
+use binrw::{BinRead, NullString};
+use::std::fmt;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -15,143 +15,63 @@ bitflags! {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(BinRead, Debug, PartialEq)]
+#[br(big)]
 pub struct Layer {
     pub index: u16,
+    #[br(map = |x: u16| LayerFlag::from_bits_retain(x))]
     pub flags: LayerFlag,
     pub pivot: [f32; 3],
-    pub name: Vec<u8>,
+    #[br(pad_size_to = 2)]
+    pub name: NullString,
     pub parent: u16,
-    pub subdivision_level: f32,
+    pub subdivision_level: f32, // oddly enough, Modo's UI only allow integers to set this
     pub curve_angle: f32,
-    pub scale_pivot: [f32; 3],
-    pub unused: [u32; 6],
-    pub reference: u32,
-    pub spline_patch_level: u16,
-    pub future_expansion: [u16; 3],
-    pub extra: Vec<u8>,
+    pub scale_pivot: [f32; 3],  // 40...
+    pub unused: [u32; 6],       // 64
+    pub reference: u32,         // 68
+    pub spline_patch_level: u16,//70
+    pub future_expansion: [u16; 3], // 76
+    pub unknown: [u16; 7],  // todo: find what each u16 here means in Modo
 }
 
-impl TryFrom<Vec<u8>> for Layer {
-    type Error = ParseError;
-
-    fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
-        if data.len() < 74 {
-            return Err(ParseError::BufferTooShort);
+impl fmt::Display for Layer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.name.is_empty() {
+            let _ = write!(f, "{}", self.index);
         }
-
-        let mut offset = 0;
-
-        let index = u16::from_be_bytes([data[offset], data[offset + 1]]);
-        offset += 2;
-
-        // let flags = u16::from_be_bytes([data[offset], data[offset + 1]]);
-        let flags = LayerFlag::from_bits(u16::from_be_bytes([data[offset], data[offset + 1]])).unwrap();
-        offset += 2;
-
-        let pivot = [
-            f32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]),
-            f32::from_be_bytes([data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7]]),
-            f32::from_be_bytes([data[offset + 8], data[offset + 9], data[offset + 10], data[offset + 11]]),
-        ];
-        offset += 12;
-
-        let mut name_end = offset;
-        while name_end < data.len() && data[name_end] != 0 {
-            name_end += 1;
-        }
-        if name_end >= data.len() {
-            return Err(ParseError::MissingNullTerminator);
-        }
-        let name = data[offset..name_end].to_vec();
-        let name_len = name_end - offset + 1;
-        offset += name_len + (name_len % 2);
-
-        if offset + 60 > data.len() {
-            return Err(ParseError::BufferTooShort);
-        }
-
-        let parent = u16::from_be_bytes([data[offset], data[offset + 1]]);
-        offset += 2;
-
-        let subdivision_level = f32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
-        offset += 4;
-
-        let curve_angle = f32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
-        offset += 4;
-
-        let scale_pivot = [
-            f32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]),
-            f32::from_be_bytes([data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7]]),
-            f32::from_be_bytes([data[offset + 8], data[offset + 9], data[offset + 10], data[offset + 11]]),
-        ];
-        offset += 12;
-
-        let mut unused = [0u32; 6];
-        for x in &mut unused {
-            *x = u32::from_be_bytes([
-                data[offset],
-                data[offset + 1],
-                data[offset + 2],
-                data[offset + 3],
-            ]);
-            offset += 4;
-        }
-
-        let reference = u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
-        offset += 4;
-
-        let spline_patch_level = u16::from_be_bytes([data[offset], data[offset + 1]]);
-        offset += 2;
-
-        let future_expansion = [
-            u16::from_be_bytes([data[offset], data[offset + 1]]),
-            u16::from_be_bytes([data[offset + 2], data[offset + 3]]),
-            u16::from_be_bytes([data[offset + 4], data[offset + 5]]),
-        ];
-        offset += 6;
-
-        let extra = if offset < data.len() {
-            data[offset..].to_vec()
-        } else {
-            Vec::new()
-        };
-
-        Ok(Layer {
-            index,
-            flags,
-            pivot,
-            name,
-            parent,
-            subdivision_level,
-            curve_angle,
-            scale_pivot,
-            unused,
-            reference,
-            spline_patch_level,
-            future_expansion,
-            extra,
-        })
+        write!(f, "{}", self.name)
     }
 }
 
-pub struct Points(pub Vec<[f32; 3]>);
+#[derive(BinRead, Debug)]
+#[br(big)]
+pub struct Point(pub [f32; 3]);
 
-impl Points {
-    pub fn from_bytes(data: &[u8]) -> Result<Self, ParseError> {
-        let points = data.chunks_exact(12).map(|point| {
-            let x = f32::from_be_bytes(point[ 0..4].try_into().unwrap());
-            let y = f32::from_be_bytes(point[ 4..8].try_into().unwrap());
-            let z = f32::from_be_bytes(point[8..12].try_into().unwrap());
-            [x,y,z]
-        }).collect();
-        Ok(Points(points))
+impl Point {
+    pub fn x(&self) -> f32 {
+        self.0[0]
+    }
+
+    pub fn y(&self) -> f32 {
+        self.0[1]
+    }
+
+    pub fn z(&self) -> f32 {
+        self.0[2]
     }
 }
+
+#[derive(BinRead, Debug)]
+#[br(big, import(count: u32))]
+pub struct Points(#[br( count = count )] pub Vec<Point>);
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ChunkHeader;
+    use std::io::Cursor;
+    use binrw::BinReaderExt;
 
     #[test]
     fn test_parse_layer_cube_lxo() {
@@ -163,35 +83,31 @@ mod tests {
         // 00001514: 0000 0000 3f80 0000 0000 0000 0010 0000  ....?...........
         // 00001524: 0000 0000 0001 0002 0002 0002 0001 0001  ................
         // 00001534: 0000                                     ..
-        // Bytes from cube.lxo LAYR chunk (excluding header)
-        let mut data: Vec<u8> = vec![
-            0x00, 0x00, 0x00, 0x05, // index=0, flags=5
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // pivot
-            0x00, // name=""
-            0x00, // padding
-            0xff, 0xff, // parent=0xffff
-            0x40, 0x00, 0x00, 0x00, // subdiv=2.0
-            0x3d, 0xb2, 0xb8, 0xc2, // angle
-            0x3f, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // scale_pivot [1,0,0]
-            0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, // unused (6 * 4 = 24 bytes)
-            0x00, 0x00, 0x00, 0x10, // ref=16
-            0x00, 0x01, // spline_patch=1
-            0x00, 0x02, 0x00, 0x02, 0x00, 0x02, // future [2,2,2]
-        ];
-        // The xxd output showed size 0x5a (90). 
-        data.resize(90, 0);  // TODO: Remove, I don't like this part. The bytes from dump should be
-        // in vec..
+        let mut reader = Cursor::new([
+            0x4c, 0x41, 0x59, 0x52, 0x00, 0x00, 0x00, 0x5a, 0x00, 0x00, 0x00, 0x05,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0xff, 0xff, 0x40, 0x00, 0x00, 0x00, 0x3d, 0xb2, 0xb8, 0xc2,
+            0x3f, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x01, 0x00, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x01, 0x00, 0x01,
+            0x00, 0x00
+        ]);
 
-        let layer = Layer::try_from(data).unwrap();
-        assert_eq!(layer.index, 0);
-        assert_eq!(layer.flags, LayerFlag::Default);
-        assert_eq!(layer.name, Vec::<u8>::new());
-        assert_eq!(layer.parent, 0xffff);
-        assert_eq!(layer.subdivision_level, 2.0);
-        assert_eq!(layer.reference, 16);
-        assert_eq!(layer.spline_patch_level, 1);
-        assert_eq!(layer.future_expansion, [2, 2, 2]);
-        assert_eq!(layer.extra.len(), 90 - 76);
+        let _: ChunkHeader = reader.read_be().unwrap();
+        let layer: Layer = reader.read_be().unwrap();
+
+        assert_eq!(layer.index, 0, "Failed to parse index");
+        assert_eq!(layer.flags, LayerFlag::Default, "Failed to parse layer flag");
+        assert!(layer.name.is_empty(), "Failed to parse name");
+        assert_eq!(layer.parent, 0xffff, "Expected parent to be 0xffff, ie not set");
+        assert_eq!(layer.subdivision_level, 2.0, "Expected 2.0 in subdivision level");
+        assert_eq!(layer.reference, 0, "Reference bad");
+        assert_eq!(layer.spline_patch_level, 16, "spline patch");
+        assert_eq!(layer.future_expansion, [0, 0, 0]);
+
+        // todo -  as we don't know what the other values can mean we leave them out from tests
     }
 
     #[test]
@@ -204,7 +120,8 @@ mod tests {
         // 00001576: 3f00 0000 3f00 0000 3f00 0000 3f00 0000  ?...?...?...?...
         // 00001586: 3f00 0000 3f00 0000 bf00 0000 bf00 0000  ?...?...........
         // 00001596: 3f00 0000 bf00 0000                      ?.......
-        let data: Vec<u8> = vec![
+        let mut reader = Cursor::new([
+            b'P', b'N', b'T', b'S', 0x00, 0x00, 0x00, 0x60,
             0xbf, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00, 
             0x3f, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00,
             0x3f, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00, 
@@ -213,9 +130,10 @@ mod tests {
             0x3f, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00,
             0x3f, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00, 
             0xbf, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00,
-        ];
+        ]);
 
-        let points = Points::from_bytes(&data).unwrap();
+        let header: ChunkHeader = reader.read_be().unwrap();
+        let points = Points::read_args(&mut reader, (header.size / 12,)).unwrap();
 
         assert_eq!(points.0.len(), 8);
     }

@@ -1,4 +1,4 @@
-use lxoxide::LuxologyFile;
+use lxoxide::{LuxologyFile, Chunk};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -13,10 +13,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let header = &file.header;
     println!("{:?} file content size: {} bytes", header.kind, header.size);
 
-    let mut offset: u64 = 12;  // after reading iff header, we have read 12 bytes
     for chunk in &file.chunks {
-        println!("{} chunk at position: {}, size: {}", chunk.kind, offset, chunk.size + 8);
-        offset += chunk.size as u64 + 8;
+        match chunk {
+            Chunk::VRSN(version) => println!("{}", version),
+            Chunk::APPV(application_version) => println!("{}", application_version),
+            Chunk::Unknown{kind: k, position: p, size: s} => {
+                println!("{} position: {}, chunk size: {}", k, p, s);
+            },
+        }
     }
 
     Ok(())
