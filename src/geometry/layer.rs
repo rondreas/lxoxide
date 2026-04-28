@@ -1,22 +1,24 @@
 use std::convert::TryFrom;
 use crate::ParseError;
+use bitflags::bitflags;
 
-// TODO: Likely opt for adding bitflags as dependency,
-// #[repr(u16)]
-// pub enum LayerFlag {
-//     Visible = 0x01,
-//     Hidden = 0x02,
-//     Foreground = 0x04,
-//     Background = 0x08,
-//     Boundingbox = 0x10,
-//     LinearUv = 0x80,
-//     Default = Self::Visible | Self::Foreground,
-// }
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct LayerFlag: u16 {
+        const Visible      = 0b0000_0001;
+        const Hidden       = 0b0000_0010;
+        const Foreground   = 0b0000_0100;
+        const Background   = 0b0000_1000;
+        const Boundingbox  = 0b0001_0000;
+        const LinearUv     = 0b1000_0000;
+        const Default      = Self::Visible.bits() | Self::Foreground.bits();
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub struct Layer {
     pub index: u16,
-    pub flags: u16,
+    pub flags: LayerFlag,
     pub pivot: [f32; 3],
     pub name: Vec<u8>,
     pub parent: u16,
@@ -43,7 +45,8 @@ impl TryFrom<Vec<u8>> for Layer {
         let index = u16::from_be_bytes([data[offset], data[offset + 1]]);
         offset += 2;
 
-        let flags = u16::from_be_bytes([data[offset], data[offset + 1]]);
+        // let flags = u16::from_be_bytes([data[offset], data[offset + 1]]);
+        let flags = LayerFlag::from_bits(u16::from_be_bytes([data[offset], data[offset + 1]])).unwrap();
         offset += 2;
 
         let pivot = [
@@ -181,7 +184,7 @@ mod tests {
 
         let layer = Layer::try_from(data).unwrap();
         assert_eq!(layer.index, 0);
-        assert_eq!(layer.flags, 5);
+        assert_eq!(layer.flags, LayerFlag::Default);
         assert_eq!(layer.name, Vec::<u8>::new());
         assert_eq!(layer.parent, 0xffff);
         assert_eq!(layer.subdivision_level, 2.0);
