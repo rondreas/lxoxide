@@ -1,6 +1,18 @@
 use std::convert::TryFrom;
 use crate::ParseError;
 
+// TODO: Likely opt for adding bitflags as dependency,
+// #[repr(u16)]
+// pub enum LayerFlag {
+//     Visible = 0x01,
+//     Hidden = 0x02,
+//     Foreground = 0x04,
+//     Background = 0x08,
+//     Boundingbox = 0x10,
+//     LinearUv = 0x80,
+//     Default = Self::Visible | Self::Foreground,
+// }
+
 #[derive(Debug, PartialEq)]
 pub struct Layer {
     pub index: u16,
@@ -120,12 +132,34 @@ impl TryFrom<Vec<u8>> for Layer {
     }
 }
 
+pub struct Points(pub Vec<[f32; 3]>);
+
+impl Points {
+    pub fn from_bytes(data: &[u8]) -> Result<Self, ParseError> {
+        let points = data.chunks_exact(12).map(|point| {
+            let x = f32::from_be_bytes(point[ 0..4].try_into().unwrap());
+            let y = f32::from_be_bytes(point[ 4..8].try_into().unwrap());
+            let z = f32::from_be_bytes(point[8..12].try_into().unwrap());
+            [x,y,z]
+        }).collect();
+        Ok(Points(points))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_parse_layer_cube_lxo() {
+        // $ xxd -s 5332 -l 98 tests/fixtures/cube.lxo
+        // 000014d4: 4c41 5952 0000 005a 0000 0005 0000 0000  LAYR...Z........
+        // 000014e4: 0000 0000 0000 0000 0000 ffff 4000 0000  ............@...
+        // 000014f4: 3db2 b8c2 3f80 0000 0000 0000 0000 0000  =...?...........
+        // 00001504: 0000 0000 3f80 0000 0000 0000 0000 0000  ....?...........
+        // 00001514: 0000 0000 3f80 0000 0000 0000 0010 0000  ....?...........
+        // 00001524: 0000 0000 0001 0002 0002 0002 0001 0001  ................
+        // 00001534: 0000                                     ..
         // Bytes from cube.lxo LAYR chunk (excluding header)
         let mut data: Vec<u8> = vec![
             0x00, 0x00, 0x00, 0x05, // index=0, flags=5
@@ -142,7 +176,8 @@ mod tests {
             0x00, 0x02, 0x00, 0x02, 0x00, 0x02, // future [2,2,2]
         ];
         // The xxd output showed size 0x5a (90). 
-        data.resize(90, 0);
+        data.resize(90, 0);  // TODO: Remove, I don't like this part. The bytes from dump should be
+        // in vec..
 
         let layer = Layer::try_from(data).unwrap();
         assert_eq!(layer.index, 0);
@@ -154,5 +189,31 @@ mod tests {
         assert_eq!(layer.spline_patch_level, 1);
         assert_eq!(layer.future_expansion, [2, 2, 2]);
         assert_eq!(layer.extra.len(), 90 - 76);
+    }
+
+    #[test]
+    fn test_parse_cube_points() {
+        // $ xxd -s 5430 -l 104 tests/fixtures/cube.lxo
+        // 00001536: 504e 5453 0000 0060 bf00 0000 bf00 0000  PNTS...`........
+        // 00001546: 3f00 0000 3f00 0000 bf00 0000 3f00 0000  ?...?.......?...
+        // 00001556: 3f00 0000 bf00 0000 bf00 0000 bf00 0000  ?...............
+        // 00001566: bf00 0000 bf00 0000 bf00 0000 3f00 0000  ............?...
+        // 00001576: 3f00 0000 3f00 0000 3f00 0000 3f00 0000  ?...?...?...?...
+        // 00001586: 3f00 0000 3f00 0000 bf00 0000 bf00 0000  ?...?...........
+        // 00001596: 3f00 0000 bf00 0000                      ?.......
+        let data: Vec<u8> = vec![
+            0xbf, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00, 
+            0x3f, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00,
+            0x3f, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00, 
+            0xbf, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00, 
+            0xbf, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00, 
+            0x3f, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00,
+            0x3f, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00, 
+            0xbf, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00,
+        ];
+
+        let points = Points::from_bytes(&data).unwrap();
+
+        assert_eq!(points.0.len(), 8);
     }
 }
