@@ -1,6 +1,11 @@
 use bitflags::bitflags;
-use binrw::{BinRead, NullString};
+use binrw::{BinRead, BinResult, Endian, NullString};
+use binrw::meta::{ReadEndian, EndianKind};
 use::std::fmt;
+use std::io::{Read, Seek};
+
+use crate::ID4;
+use crate::primitives::{VX, U2};
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -66,6 +71,40 @@ impl Point {
 #[br(big, import(count: u32))]
 pub struct Points(#[br( count = count )] pub Vec<Point>);
 
+#[derive(BinRead, Debug)]
+pub struct Polygon{
+    vertex_count: U2,
+    #[br( count = vertex_count )]
+    vertex_index: Vec<VX>
+}
+
+pub struct PolygonList{
+    kind: ID4,
+    polygons: Vec<Polygon>
+}
+
+impl ReadEndian for PolygonList {
+    const ENDIAN: EndianKind = EndianKind::Endian(Endian::Big);
+}
+
+impl BinRead for PolygonList {
+    type Args<'a> = u32;
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        _endian: Endian,
+        size: Self::Args<'_>,
+    ) -> BinResult<PolygonList> {
+        let start = reader.stream_position()?;
+        let kind = ID4::read_be(reader)?;
+        let mut polygons = vec![];
+        while reader.stream_position()? - start < size as u64 {
+            polygons.push(Polygon::read_be(reader)?);
+        }
+        Ok(PolygonList{ kind, polygons })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,14 +114,6 @@ mod tests {
 
     #[test]
     fn test_parse_layer_cube_lxo() {
-        // $ xxd -s 5332 -l 98 tests/fixtures/cube.lxo
-        // 000014d4: 4c41 5952 0000 005a 0000 0005 0000 0000  LAYR...Z........
-        // 000014e4: 0000 0000 0000 0000 0000 ffff 4000 0000  ............@...
-        // 000014f4: 3db2 b8c2 3f80 0000 0000 0000 0000 0000  =...?...........
-        // 00001504: 0000 0000 3f80 0000 0000 0000 0000 0000  ....?...........
-        // 00001514: 0000 0000 3f80 0000 0000 0000 0010 0000  ....?...........
-        // 00001524: 0000 0000 0001 0002 0002 0002 0001 0001  ................
-        // 00001534: 0000                                     ..
         let mut reader = Cursor::new([
             0x4c, 0x41, 0x59, 0x52, 0x00, 0x00, 0x00, 0x5a, 0x00, 0x00, 0x00, 0x05,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -112,14 +143,6 @@ mod tests {
 
     #[test]
     fn test_parse_cube_points() {
-        // $ xxd -s 5430 -l 104 tests/fixtures/cube.lxo
-        // 00001536: 504e 5453 0000 0060 bf00 0000 bf00 0000  PNTS...`........
-        // 00001546: 3f00 0000 3f00 0000 bf00 0000 3f00 0000  ?...?.......?...
-        // 00001556: 3f00 0000 bf00 0000 bf00 0000 bf00 0000  ?...............
-        // 00001566: bf00 0000 bf00 0000 bf00 0000 3f00 0000  ............?...
-        // 00001576: 3f00 0000 3f00 0000 3f00 0000 3f00 0000  ?...?...?...?...
-        // 00001586: 3f00 0000 3f00 0000 bf00 0000 bf00 0000  ?...?...........
-        // 00001596: 3f00 0000 bf00 0000                      ?.......
         let mut reader = Cursor::new([
             b'P', b'N', b'T', b'S', 0x00, 0x00, 0x00, 0x60,
             0xbf, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00, 
@@ -136,5 +159,23 @@ mod tests {
         let points = Points::read_args(&mut reader, (header.size / 12,)).unwrap();
 
         assert_eq!(points.0.len(), 8);
+    }
+
+    #[test]
+    fn test_parse_cube_polygons() {
+        let mut reader = Cursor::new([
+          0x50, 0x4f, 0x4c, 0x53, 0x00, 0x00, 0x00, 0x40, 0x46, 0x41, 0x43, 0x45,
+          0x00, 0x04, 0x00, 0x00, 0x00, 0x03, 0x00, 0x02, 0x00, 0x01, 0x00, 0x04,
+          0x00, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x05, 0x00, 0x04, 0x00, 0x05,
+          0x00, 0x01, 0x00, 0x02, 0x00, 0x06, 0x00, 0x04, 0x00, 0x06, 0x00, 0x02,
+          0x00, 0x03, 0x00, 0x07, 0x00, 0x04, 0x00, 0x07, 0x00, 0x03, 0x00, 0x00,
+          0x00, 0x04, 0x00, 0x04, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07
+        ]);
+
+        let header: ChunkHeader = reader.read_be().unwrap();
+        let polygon_list = PolygonList::read_args(&mut reader, header.size).unwrap();
+
+        assert_eq!(polygon_list.kind, "FACE");
+        assert!(polygon_list.polygons.iter().all(|polygon| polygon.vertex_count.0 == 4));
     }
 }

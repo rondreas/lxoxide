@@ -10,10 +10,28 @@ pub struct S0(pub NullString);
 #[bw(big)]
 pub struct U2(pub u16);
 
+impl From<U2> for u16 {
+    fn from(u2: U2) -> u16 {
+        u2.0
+    }
+}
+
+impl From<U2> for usize {
+    fn from(u2: U2) -> usize {
+        u2.0 as usize
+    }
+}
+
 #[derive(BinRead, BinWrite, Debug, Clone, Copy, PartialEq)]
 #[br(big)]
 #[bw(big)]
 pub struct U4(pub u32);
+
+impl From<U4> for usize {
+    fn from(u4: U4) -> usize {
+        u4.0 as usize
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum VX {

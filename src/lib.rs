@@ -28,6 +28,27 @@ impl ID4 {
     }
 }
 
+
+impl PartialEq<&str> for ID4 {
+    fn eq(&self, other: &&str) -> bool {
+        other.len() == 4 && self.0 == other.as_bytes()
+    }
+}
+
+
+impl PartialEq<ID4> for &str {
+    fn eq(&self, other: &ID4) -> bool {
+        self.len() == 4 && other.0 == self.as_bytes()
+    }
+}
+
+
+impl From<ID4> for String {
+    fn from(id4: ID4) -> String {
+        String::from_utf8_lossy(&id4.0).to_string()
+    }
+}
+
 impl FromStr for ID4 {
     type Err = ParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
