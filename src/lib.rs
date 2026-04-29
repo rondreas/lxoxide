@@ -26,6 +26,10 @@ impl ID4 {
     pub const fn to_bytes(self) -> [u8; 4] {
         self.0
     }
+
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.0).unwrap_or("UNKN")
+    }
 }
 
 
@@ -106,7 +110,7 @@ impl Extension {
 
 
 pub mod geometry;
-use geometry::layer::{Layer, Points};
+use geometry::layer::{Layer, Points, PolygonList};
 
 #[derive(BinRead, Debug)]
 #[br(magic = b"FORM")]
@@ -135,6 +139,7 @@ pub enum Chunk {
     ENCO(Encoding),
     LAYR(Layer),
     PNTS(Points),
+    POLS(PolygonList),
     Unknown {kind: ID4, position: u64, size: u32},
 }
 
@@ -259,26 +264,30 @@ impl LuxologyFile {
             };
 
             // match each chunk by it's magic
-            match &header.kind.0 {
-                b"VRSN" => {
+            match header.kind.as_str() {
+                "VRSN" => {
                     let version: Version = reader.read_be().unwrap();
                     chunks.push(Chunk::VRSN(version));
                 },
-                b"APPV" => {
+                "APPV" => {
                     let version: ApplicationVersion = reader.read_be().unwrap();
                     chunks.push(Chunk::APPV(version));
                 },
-                b"ENCO" => {
+                "ENCO" => {
                     let encoding: Encoding = reader.read_be().unwrap();
                     chunks.push(Chunk::ENCO(encoding));
                 },
-                b"LAYR" => {
+                "LAYR" => {
                     let layer: Layer = reader.read_be().unwrap();
                     chunks.push(Chunk::LAYR(layer));
                 },
-                b"PNTS" => {
+                "PNTS" => {
                     let points = Points::read_args(reader, (header.size / 12,)).unwrap();
                     chunks.push(Chunk::PNTS(points));
+                },
+                "POLS" => {
+                    let polygon_list = PolygonList::read_args(reader, header.size).unwrap();
+                    chunks.push(Chunk::POLS(polygon_list));
                 },
                 _ => {
                     // push the unknown chunk, with offset and size so we can quickly find it

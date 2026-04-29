@@ -73,14 +73,15 @@ pub struct Points(#[br( count = count )] pub Vec<Point>);
 
 #[derive(BinRead, Debug)]
 pub struct Polygon{
-    vertex_count: U2,
+    pub vertex_count: U2,
     #[br( count = vertex_count )]
-    vertex_index: Vec<VX>
+    pub vertex_index: Vec<VX>
 }
 
+#[derive(Debug)]
 pub struct PolygonList{
-    kind: ID4,
-    polygons: Vec<Polygon>
+    pub kind: ID4,
+    pub polygons: Vec<Polygon>
 }
 
 impl ReadEndian for PolygonList {
