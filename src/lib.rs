@@ -5,6 +5,8 @@ use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::path::Path as StdPath;
 use binrw::{BinRead, BinReaderExt, NullString};
 
+pub mod primitives;
+
 #[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ID4([u8; 4]);
 
