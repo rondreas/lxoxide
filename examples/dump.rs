@@ -17,6 +17,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match chunk {
             Chunk::VRSN(version) => println!("{}", version),
             Chunk::APPV(application_version) => println!("{}", application_version),
+            Chunk::ENCO(encoding) => println!("Encoding: {}", encoding),
+            Chunk::LAYR(layer) => println!("Layer {}", layer),
+            Chunk::PNTS(points) => println!("Points: {}", points.0.len()),
             Chunk::Unknown{kind: k, position: p, size: s} => {
                 println!("{} position: {}, chunk size: {}", k, p, s);
             },

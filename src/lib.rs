@@ -83,6 +83,7 @@ impl Extension {
 
 
 pub mod geometry;
+use geometry::layer::{Layer, Points};
 
 #[derive(BinRead, Debug)]
 #[br(magic = b"FORM")]
@@ -103,10 +104,14 @@ pub struct ChunkHeader {
 }
 
 
+// Enum for all chunks, storing unknown with information to more easy check hexdump
 #[derive(Debug)]
 pub enum Chunk {
     VRSN(Version),
     APPV(ApplicationVersion),
+    ENCO(Encoding),
+    LAYR(Layer),
+    PNTS(Points),
     Unknown {kind: ID4, position: u64, size: u32},
 }
 
@@ -230,6 +235,7 @@ impl LuxologyFile {
                 }
             };
 
+            // match each chunk by it's magic
             match &header.kind.0 {
                 b"VRSN" => {
                     let version: Version = reader.read_be().unwrap();
@@ -238,6 +244,18 @@ impl LuxologyFile {
                 b"APPV" => {
                     let version: ApplicationVersion = reader.read_be().unwrap();
                     chunks.push(Chunk::APPV(version));
+                },
+                b"ENCO" => {
+                    let encoding: Encoding = reader.read_be().unwrap();
+                    chunks.push(Chunk::ENCO(encoding));
+                },
+                b"LAYR" => {
+                    let layer: Layer = reader.read_be().unwrap();
+                    chunks.push(Chunk::LAYR(layer));
+                },
+                b"PNTS" => {
+                    let points = Points::read_args(reader, (header.size / 12,)).unwrap();
+                    chunks.push(Chunk::PNTS(points));
                 },
                 _ => {
                     // push the unknown chunk, with offset and size so we can quickly find it
