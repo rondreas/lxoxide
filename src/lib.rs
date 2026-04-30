@@ -7,6 +7,7 @@ use binrw::{BinRead, BinReaderExt, NullString};
 
 pub mod primitives;
 pub mod item;
+pub mod animation;
 
 use item::Item;
 
