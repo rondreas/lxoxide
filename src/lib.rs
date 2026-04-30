@@ -6,6 +6,9 @@ use std::path::Path as StdPath;
 use binrw::{BinRead, BinReaderExt, NullString};
 
 pub mod primitives;
+pub mod item;
+
+use item::Item;
 
 #[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ID4([u8; 4]);
@@ -140,6 +143,7 @@ pub enum Chunk {
     LAYR(Layer),
     PNTS(Points),
     POLS(PolygonList),
+    ITEM(Item),
     Unknown {kind: ID4, position: u64, size: u32},
 }
 
@@ -154,6 +158,7 @@ pub enum ParseError {
     BufferTooShort,
     MissingNullTerminator,
     UnalignedBytes,
+    ChannelVectorArray,
     IoError(io::Error),
 }
 
@@ -169,6 +174,7 @@ impl PartialEq for ParseError {
                 | (ParseError::BufferTooShort, ParseError::BufferTooShort)
                 | (ParseError::MissingNullTerminator, ParseError::MissingNullTerminator)
                 | (ParseError::UnalignedBytes, ParseError::UnalignedBytes)
+                | (ParseError::ChannelVectorArray, ParseError::ChannelVectorArray)
                 | (ParseError::IoError(_), ParseError::IoError(_))
         )
     }
@@ -185,6 +191,7 @@ impl fmt::Display for ParseError {
             ParseError::BufferTooShort => write!(f, "Buffer is too short for the data to be parsed"),
             ParseError::MissingNullTerminator => write!(f, "Strings must be null terminated"),
             ParseError::UnalignedBytes => write!(f, "Bytes must be aligned to even number"),
+            ParseError::ChannelVectorArray => write!(f, "Non supported Channel Vector data type"),
             ParseError::IoError(e) => write!(f, "IO error: {e}"),
         }
     }
@@ -249,6 +256,7 @@ impl LuxologyFile {
                 Err(e) => {
                     // note: I really don't like this part, but for some reason binrw wraps
                     // everything in a backtrace that we need to untangle...
+                    // todo: use .is_eof from binrw 
                     let mut err = &e;
                     while let binrw::Error::Backtrace(bt) = err {
                         err = &bt.error;
@@ -288,6 +296,10 @@ impl LuxologyFile {
                 "POLS" => {
                     let polygon_list = PolygonList::read_args(reader, header.size).unwrap();
                     chunks.push(Chunk::POLS(polygon_list));
+                },
+                "ITEM" => {
+                    let item = Item::read_args(reader, header.size)?;
+                    chunks.push(Chunk::ITEM(item));
                 },
                 _ => {
                     // push the unknown chunk, with offset and size so we can quickly find it

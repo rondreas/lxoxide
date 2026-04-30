@@ -23,6 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Chunk::POLS(polygon_list) => {
                 println!("{} {} type Polygons", polygon_list.polygons.len(), polygon_list.kind)
             },
+            Chunk::ITEM(item) => println!("Item {}", item.name.0), 
             Chunk::Unknown{kind: k, position: p, size: s} => {
                 println!("{} position: {}, chunk size: {}", k, p, s);
             },
