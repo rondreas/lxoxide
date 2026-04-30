@@ -83,32 +83,11 @@ impl BinRead for VectorElement {
     fn read_options<R: Read + Seek>(
         reader: &mut R,
         _endian: binrw::Endian,
-        kind: Self::Args<'_>,
+        flag: Self::Args<'_>,
     ) -> BinResult<VectorElement> {
         let name = S0::read_be(reader)?;
-        match kind.0 & !0x20 {
-            0b0000_0001 => {
-                let i = i32::read_be(reader)?;
-                Ok(VectorElement{name: name, value: ChannelValue::Integer(i)})
-            },
-            0b0000_0010 => {
-                let f = f32::read_be(reader)?;
-                Ok(VectorElement{name: name, value: ChannelValue::Float(f)})
-            },
-            0b0000_0100 => {
-                let s = S0::read_be(reader)?;
-                Ok(VectorElement{name: name, value: ChannelValue::String(s)})
-            },
-            _ => {
-                let pos = reader.stream_position()?;
-                Err(binrw::error::Error::Custom{
-                    pos, 
-                    err: Box::new(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!("No support for Channel Vector type: {}", kind.0)
-                    )),
-                })}  // todo: find a lxo where channel has array type, or fuzz modo
-        }
+        let value = ChannelValue::read_be_args(reader, (flag.0,))?;
+        Ok(VectorElement{name, value})
     }
 }
 
