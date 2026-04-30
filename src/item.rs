@@ -28,6 +28,7 @@ pub struct Package {
 pub struct Channel {
     index: VX,
     kind: U2,
+    #[br(args(kind.0))]
     value: ChannelValue
 }
 
@@ -140,23 +141,23 @@ impl ReadEndian for ChannelValue {
 }
 
 impl BinRead for ChannelValue {
-    type Args<'a> = u16;
+    type Args<'a> = (u16,);
 
     fn read_options<R: Read + Seek>(
         reader: &mut R,
         endian: binrw::Endian,
         flag: Self::Args<'_>,
     ) -> BinResult<Self> {
-        match flag {
-            1 => Ok(ChannelValue::Integer(i32::read_options(reader, endian, ())?)),
-            2 => Ok(ChannelValue::Float(f32::read_options(reader, endian, ())?)),
-            3 => {
+        match flag.0 & !0x20 {
+            0x1 | 0x11 => Ok(ChannelValue::Integer(i32::read_options(reader, endian, ())?)),
+            0x2 | 0x12 => Ok(ChannelValue::Float(f32::read_options(reader, endian, ())?)),
+            0x3 | 0x13 => {
                 let s = S0::read_options(reader, endian, ())?;
                 Ok(ChannelValue::String(s))
             }
             _ => {
                 let pos = reader.stream_position()?;
-                panic!("Invalid ItemFlag {} at: {}", flag, pos)
+                panic!("Invalid ItemFlag {} at: {}", flag.0, pos)
             },
         }
     }
@@ -243,6 +244,10 @@ impl BinRead for Item {
                     let chunk = BoundingBox::read_options(reader, endian, ())?;
                     SubChunks::BBOX(chunk)
                 }
+                "CHNL" => {
+                    let chunk = ScalarChannel::read_options(reader, endian, ())?;
+                    SubChunks::CHNL(chunk)
+                }
                 "CHNV" => {
                     let chunk = VectorChannel::read_options(reader, endian, ())?;
                     SubChunks::CHNV(chunk)
@@ -259,11 +264,10 @@ impl BinRead for Item {
                     let chunk = VisibleName::read_options(reader, endian, ())?;
                     SubChunks::VNAM(chunk)
                 }
-                // Ignoring CHAN for now, 
-                // "CHAN" => {
-                //     let chunk = Channel::read_options(reader, endian, ())?;
-                //     SubChunks::CHAN(chunk)
-                // }
+                "CHAN" => {
+                    let chunk = Channel::read_options(reader, endian, ())?;
+                    SubChunks::CHAN(chunk)
+                }
                 _ => {
                     reader.seek_relative(header.size.0 as i64)?;
                     SubChunks::Unknown { kind: header.kind, size: header.size }
@@ -317,18 +321,24 @@ mod tests {
         // 0000179a: 414e 0008 00e2 0021 0000 0001 4348 414e  AN.....!....CHAN
         // 000017aa: 000c
         let mut reader = Cursor::new([
-            0x43, 0x48, 0x41, 0x4e,
-            0x00, 0x08,  // 0x0008 - index into Channel Names, albedo.b
-            0x00, 0xe0, 
-            0x00, 0x21, 0x00, 0x00, 0x00, 0x01,  // 6 bytes???
-            0x43, 0x48, 0x41, 0x4e,
-            0x00, 0x08,
+            0x43, 0x48, 0x41, 0x4e, 0x00, 0x08, // CHAN, 8 bytes in size
+            0x00, 0xe0, // 0x00e0 - index into Channel Names, inheritPos in this case 
+            0x00, 0x21, // flag
+            0x00, 0x00, 0x00, 0x01,
+            0x43, 0x48, 0x41, 0x4e, 0x00, 0x08,
             0x00, 0xe1,
-            0x00, 0x21, 0x00, 0x00, 0x00, 0x01,
-            0x43, 0x48, 0x41, 0x4e,
-            0x00, 0x08,
+            0x00, 0x21,
+            0x00, 0x00, 0x00, 0x01,
+            0x43, 0x48, 0x41, 0x4e, 0x00, 0x08,
             0x00, 0xe2,
-            0x00, 0x21, 0x00, 0x00, 0x00, 0x01, 
+            0x00, 0x21,
+            0x00, 0x00, 0x00, 0x01, 
         ]);
+
+        let _ = SubChunkHeader::read_be(&mut reader).unwrap();
+        let chan = Channel::read_be(&mut reader).unwrap();
+
+        assert_eq!(chan.index, VX::U2(224));
+        assert_eq!(chan.value, ChannelValue::Integer(1));
     }
 }
