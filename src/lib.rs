@@ -10,6 +10,7 @@ pub mod item;
 pub mod animation;
 
 use item::Item;
+use animation::Envelope;
 
 #[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ID4([u8; 4]);
@@ -145,6 +146,7 @@ pub enum Chunk {
     PNTS(Points),
     POLS(PolygonList),
     ITEM(Item),
+    ENVL(Envelope),
     Unknown {kind: ID4, position: u64, size: u32},
 }
 
@@ -302,6 +304,10 @@ impl LuxologyFile {
                     let item = Item::read_args(reader, header.size)?;
                     chunks.push(Chunk::ITEM(item));
                 },
+                "ENVL" => {
+                    let envelope = Envelope::read_be(reader)?;
+                    chunks.push(Chunk::ENVL(envelope));
+                }
                 _ => {
                     // push the unknown chunk, with offset and size so we can quickly find it
                     // with hex dump, like `xxd -s position -l size ./path/to/file.lxo` 

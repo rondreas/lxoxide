@@ -1,4 +1,5 @@
 use binrw::BinRead;
+use std::fmt;
 use crate::primitives::VX;
 
 // todo: many subchunks here have a fixed size, so _size should be replace with some method to
@@ -9,6 +10,15 @@ use crate::primitives::VX;
 pub enum EnvelopeKind {
     Float,
     Integer
+}
+
+impl fmt::Display for EnvelopeKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EnvelopeKind::Float => write!(f, "float"),
+            EnvelopeKind::Integer => write!(f, "integer"),
+        }
+    }
 }
 
 #[derive(BinRead, Debug)]
