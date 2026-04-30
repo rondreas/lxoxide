@@ -240,11 +240,17 @@ impl LuxologyFile {
 
     pub fn from_path<P: AsRef<StdPath>>(path: P) -> Result<LuxologyFile, ParseError> {
         let file = File::open(path).map_err(ParseError::IoError)?;
+        let meta = file.metadata()?;
         let mut reader = BufReader::new(file);
 
         let header: Header = reader.read_be().unwrap();
 
-        // todo: if file size, does not match header.size + 8, throw error
+        // Check that the reported size of content, matches file size
+        // Modo will however happily go ahead and just parse the first file if we concat
+        // two files. Causing the second FORM to just be dropped when saving.
+        if meta.len() == header.size as u64 + 12 {
+            return Err(ParseError::InvalidSize)
+        }
 
         let chunks = Self::parse_chunks(&mut reader)?;
 
@@ -257,24 +263,13 @@ impl LuxologyFile {
             let header = match ChunkHeader::read_be(reader) {
                 Ok(h) => h,
                 Err(e) => {
-                    // note: I really don't like this part, but for some reason binrw wraps
-                    // everything in a backtrace that we need to untangle...
-                    // todo: use .is_eof from binrw 
-                    let mut err = &e;
-                    while let binrw::Error::Backtrace(bt) = err {
-                        err = &bt.error;
+                    if e.is_eof() {
+                        break;
                     }
-
-                    if let binrw::Error::Io(io_err) = err
-                        && io_err.kind() == std::io::ErrorKind::UnexpectedEof {
-                            break;
-                        }
-
-                    return Err(e.into());
+                    return Err(e.into())
                 }
             };
 
-            // match each chunk by it's magic
             match header.kind.as_str() {
                 "VRSN" => {
                     let version: Version = reader.read_be().unwrap();
