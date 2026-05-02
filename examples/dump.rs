@@ -1,4 +1,4 @@
-use lxoxide::{LuxologyFile, Chunk};
+use lxoxide::{Chunk, LuxologyFile};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -21,13 +21,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Chunk::LAYR(layer) => println!("Layer {}", layer),
             Chunk::PNTS(points) => println!("Points: {}", points.0.len()),
             Chunk::POLS(polygon_list) => {
-                println!("{} {} type Polygons", polygon_list.polygons.len(), polygon_list.kind)
-            },
-            Chunk::ITEM(item) => println!("Item {}", item.name.0), 
-            Chunk::ENVL(envelope) => println!("{} Envelope", envelope.kind), 
-            Chunk::Unknown{kind: k, position: p, size: s} => {
+                println!(
+                    "{} {} type Polygons",
+                    polygon_list.polygons.len(),
+                    polygon_list.kind
+                )
+            }
+            Chunk::ITEM(item) => println!("Item {}", item.name.to_string()),
+            Chunk::ENVL(envelope) => println!("{} Envelope", envelope.kind),
+            Chunk::Unknown {
+                kind: k,
+                position: p,
+                size: s,
+            } => {
                 println!("{} position: {}, chunk size: {}", k, p, s);
-            },
+            }
         }
     }
 

@@ -1,16 +1,16 @@
+use binrw::{BinRead, BinReaderExt, NullString};
 use std::fmt;
-use std::str::FromStr;
 use std::fs::File;
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::path::Path as StdPath;
-use binrw::{BinRead, BinReaderExt, NullString};
+use std::str::FromStr;
 
-pub mod primitives;
-pub mod item;
 pub mod animation;
+pub mod item;
+pub mod primitives;
 
-use item::Item;
 use animation::Envelope;
+use item::Item;
 
 #[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ID4([u8; 4]);
@@ -37,20 +37,17 @@ impl ID4 {
     }
 }
 
-
 impl PartialEq<&str> for ID4 {
     fn eq(&self, other: &&str) -> bool {
         other.len() == 4 && self.0 == other.as_bytes()
     }
 }
 
-
 impl PartialEq<ID4> for &str {
     fn eq(&self, other: &ID4) -> bool {
         self.len() == 4 && other.0 == self.as_bytes()
     }
 }
-
 
 impl From<ID4> for String {
     fn from(id4: ID4) -> String {
@@ -72,19 +69,21 @@ impl FromStr for ID4 {
 impl fmt::Display for ID4 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let b = self.to_bytes();
-        write!(f, "{}{}{}{}", b[0] as char, b[1] as char, b[2] as char, b[3] as char)
+        write!(
+            f,
+            "{}{}{}{}",
+            b[0] as char, b[1] as char, b[2] as char, b[3] as char
+        )
     }
 }
-
-
 
 #[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[br(repr = u32)]
 pub enum Extension {
-    LXOB = 0x4c584f42,  // scene file
-    LXPR = 0x4c585052,  // preset assembly
-    LXPE = 0x4c585045,  // preset environment
-    LXPM = 0x4c58504d,  // preset item
+    LXOB = 0x4c584f42, // scene file
+    LXPR = 0x4c585052, // preset assembly
+    LXPE = 0x4c585045, // preset environment
+    LXPM = 0x4c58504d, // preset item
 }
 
 impl TryFrom<u32> for Extension {
@@ -113,7 +112,6 @@ impl Extension {
     }
 }
 
-
 pub mod geometry;
 use geometry::layer::{Layer, Points, PolygonList};
 
@@ -124,17 +122,15 @@ pub struct Header {
     pub size: u32,
 
     #[br(big, map = Extension::from)]
-    pub kind: Extension
+    pub kind: Extension,
 }
-
 
 #[derive(BinRead, Debug)]
 #[br(big)]
 pub struct ChunkHeader {
     pub kind: ID4,
-    pub size: u32
+    pub size: u32,
 }
-
 
 // Enum for all chunks, storing unknown with information to more easy check hexdump
 #[derive(Debug)]
@@ -147,9 +143,8 @@ pub enum Chunk {
     POLS(PolygonList),
     ITEM(Item),
     ENVL(Envelope),
-    Unknown {kind: ID4, position: u64, size: u32},
+    Unknown { kind: ID4, position: u64, size: u32 },
 }
-
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -169,15 +164,26 @@ impl PartialEq for ParseError {
     fn eq(&self, other: &Self) -> bool {
         matches!(
             (self, other),
-            (ParseError::InvalidMagicNumber, ParseError::InvalidMagicNumber)
-                | (ParseError::InvalidID4, ParseError::InvalidID4)
+            (
+                ParseError::InvalidMagicNumber,
+                ParseError::InvalidMagicNumber
+            ) | (ParseError::InvalidID4, ParseError::InvalidID4)
                 | (ParseError::SizeMismatch, ParseError::SizeMismatch)
                 | (ParseError::InvalidSize, ParseError::InvalidSize)
-                | (ParseError::NonSupportedExtension, ParseError::NonSupportedExtension)
+                | (
+                    ParseError::NonSupportedExtension,
+                    ParseError::NonSupportedExtension
+                )
                 | (ParseError::BufferTooShort, ParseError::BufferTooShort)
-                | (ParseError::MissingNullTerminator, ParseError::MissingNullTerminator)
+                | (
+                    ParseError::MissingNullTerminator,
+                    ParseError::MissingNullTerminator
+                )
                 | (ParseError::UnalignedBytes, ParseError::UnalignedBytes)
-                | (ParseError::ChannelVectorArray, ParseError::ChannelVectorArray)
+                | (
+                    ParseError::ChannelVectorArray,
+                    ParseError::ChannelVectorArray
+                )
                 | (ParseError::IoError(_), ParseError::IoError(_))
         )
     }
@@ -188,10 +194,14 @@ impl fmt::Display for ParseError {
         match self {
             ParseError::InvalidMagicNumber => write!(f, "IFF files must start with FORM"),
             ParseError::InvalidID4 => write!(f, "ID4 must be 4 printable ASCII characters"),
-            ParseError::SizeMismatch => write!(f, "File size does not match reported size in header"),
+            ParseError::SizeMismatch => {
+                write!(f, "File size does not match reported size in header")
+            }
             ParseError::InvalidSize => write!(f, "Invalid size for fixed size chunk data"),
             ParseError::NonSupportedExtension => write!(f, "File type not supported"),
-            ParseError::BufferTooShort => write!(f, "Buffer is too short for the data to be parsed"),
+            ParseError::BufferTooShort => {
+                write!(f, "Buffer is too short for the data to be parsed")
+            }
             ParseError::MissingNullTerminator => write!(f, "Strings must be null terminated"),
             ParseError::UnalignedBytes => write!(f, "Bytes must be aligned to even number"),
             ParseError::ChannelVectorArray => write!(f, "Non supported Channel Vector data type"),
@@ -209,13 +219,11 @@ impl std::error::Error for ParseError {
     }
 }
 
-
 impl From<std::io::Error> for ParseError {
     fn from(e: std::io::Error) -> Self {
         ParseError::IoError(io::Error::other(e.to_string()))
     }
 }
-
 
 impl From<binrw::Error> for ParseError {
     fn from(e: binrw::Error) -> Self {
@@ -226,12 +234,10 @@ impl From<binrw::Error> for ParseError {
     }
 }
 
-
 pub struct LuxologyFile {
     pub header: Header,
     pub chunks: Vec<Chunk>,
 }
-
 
 impl LuxologyFile {
     pub fn new(header: Header, chunks: Vec<Chunk>) -> LuxologyFile {
@@ -249,7 +255,7 @@ impl LuxologyFile {
         // Modo will however happily go ahead and just parse the first file if we concat
         // two files. Causing the second FORM to just be dropped when saving.
         if meta.len() == header.size as u64 + 12 {
-            return Err(ParseError::InvalidSize)
+            return Err(ParseError::InvalidSize);
         }
 
         let chunks = Self::parse_chunks(&mut reader)?;
@@ -266,7 +272,7 @@ impl LuxologyFile {
                     if e.is_eof() {
                         break;
                     }
-                    return Err(e.into())
+                    return Err(e.into());
                 }
             };
 
@@ -274,44 +280,44 @@ impl LuxologyFile {
                 "VRSN" => {
                     let version: Version = reader.read_be().unwrap();
                     chunks.push(Chunk::VRSN(version));
-                },
+                }
                 "APPV" => {
                     let version: ApplicationVersion = reader.read_be().unwrap();
                     chunks.push(Chunk::APPV(version));
-                },
+                }
                 "ENCO" => {
                     let encoding: Encoding = reader.read_be().unwrap();
                     chunks.push(Chunk::ENCO(encoding));
-                },
+                }
                 "LAYR" => {
                     let layer: Layer = reader.read_be().unwrap();
                     chunks.push(Chunk::LAYR(layer));
-                },
+                }
                 "PNTS" => {
                     let points = Points::read_args(reader, (header.size / 12,)).unwrap();
                     chunks.push(Chunk::PNTS(points));
-                },
+                }
                 "POLS" => {
                     let polygon_list = PolygonList::read_args(reader, header.size).unwrap();
                     chunks.push(Chunk::POLS(polygon_list));
-                },
+                }
                 "ITEM" => {
                     let item = Item::read_args(reader, header.size)?;
                     chunks.push(Chunk::ITEM(item));
-                },
+                }
                 "ENVL" => {
                     let envelope = Envelope::read_be(reader)?;
                     chunks.push(Chunk::ENVL(envelope));
                 }
                 _ => {
                     // push the unknown chunk, with offset and size so we can quickly find it
-                    // with hex dump, like `xxd -s position -l size ./path/to/file.lxo` 
+                    // with hex dump, like `xxd -s position -l size ./path/to/file.lxo`
                     chunks.push(Chunk::Unknown {
                         kind: header.kind,
                         position: reader.stream_position().unwrap() - 8,
                         size: header.size + 8,
                     });
-                    
+
                     reader.seek(SeekFrom::Current(header.size as i64))?;
                 }
             }
@@ -321,7 +327,6 @@ impl LuxologyFile {
     }
 }
 
-
 #[derive(BinRead, Debug, PartialEq)]
 #[br(big)]
 pub struct Version {
@@ -329,8 +334,8 @@ pub struct Version {
 
     minor: u32,
 
-    #[br(pad_size_to = 2)]
-    application: NullString
+    #[br(align_after = 2)]
+    application: NullString,
 }
 
 impl fmt::Display for Version {
@@ -347,27 +352,31 @@ pub struct ApplicationVersion {
     minor: u32,
     build: u32,
 
-    #[br(pad_size_to = 2)]
-    application: NullString
+    #[br(align_after = 2)]
+    application: NullString,
 }
 
 impl fmt::Display for ApplicationVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}.{}.{} - {} {}", self.base, self.major, self.minor, self.build, self.application)
+        write!(
+            f,
+            "{}.{}.{} - {} {}",
+            self.base, self.major, self.minor, self.build, self.application
+        )
     }
 }
 
 #[derive(BinRead, Debug, PartialEq)]
 #[br(big, repr = u32)]
 pub enum Encoding {
-    Default  = 0,
-    Ansi     = 1,
-    Utf8     = 2,
+    Default = 0,
+    Ansi = 1,
+    Utf8 = 2,
     ShiftJis = 3,
-    EucJp    = 4,
-    EucKr    = 5,
-    Gb2312   = 6,
-    Big5     = 7
+    EucJp = 4,
+    EucKr = 5,
+    Gb2312 = 6,
+    Big5 = 7,
 }
 
 impl fmt::Display for Encoding {
@@ -414,10 +423,10 @@ mod tests {
 
         let _: ChunkHeader = reader.read_be().unwrap();
 
-        let expected = Version{
+        let expected = Version {
             major: 16,
             minor: 0,
-            application: "nexus 2000 by The Foundry".into()
+            application: "nexus 2000 by The Foundry".into(),
         };
         let result: Version = reader.read_be().unwrap();
 
@@ -431,7 +440,7 @@ mod tests {
         let _: ChunkHeader = reader.read_be().unwrap();
 
         let expected = ApplicationVersion {
-            base: 2000,  // this version matches the nexus.dll that likely was used to save
+            base: 2000, // this version matches the nexus.dll that likely was used to save
             major: 2000,
             minor: 0,
             build: 661446,
@@ -463,7 +472,7 @@ mod tests {
     //             while let binrw::Error::Backtrace(bt) = err {
     //                 err = &bt.error;
     //             }
-    //             
+    //
     //             match err {
     //                 Err(binrw::Error::NoVariantMatch{pos: _}) => { /* Test pass */ }
     //                 _ => panic!("wtf..."),

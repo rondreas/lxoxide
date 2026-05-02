@@ -1,42 +1,11 @@
-use binrw::{BinRead, BinWrite, BinResult, NullString, Endian};
-use binrw::meta::{ReadEndian, EndianKind};
-use std::io::{Read, Write, Seek};
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct S0(pub NullString);
-
-#[derive(BinRead, BinWrite, Debug, Clone, Copy, PartialEq)]
-#[br(big)]
-#[bw(big)]
-pub struct U2(pub u16);
-
-impl From<U2> for u16 {
-    fn from(u2: U2) -> u16 {
-        u2.0
-    }
-}
-
-impl From<U2> for usize {
-    fn from(u2: U2) -> usize {
-        u2.0 as usize
-    }
-}
-
-#[derive(BinRead, BinWrite, Debug, Clone, Copy, PartialEq)]
-#[br(big)]
-#[bw(big)]
-pub struct U4(pub u32);
-
-impl From<U4> for usize {
-    fn from(u4: U4) -> usize {
-        u4.0 as usize
-    }
-}
+use binrw::meta::{EndianKind, ReadEndian};
+use binrw::{BinRead, BinResult, Endian};
+use std::io::{Read, Seek};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum VX {
     U2(u16),
-    U4(u32)
+    U4(u32),
 }
 
 impl BinRead for VX {
@@ -60,89 +29,11 @@ impl ReadEndian for VX {
     const ENDIAN: EndianKind = EndianKind::Endian(binrw::Endian::Big);
 }
 
-impl BinRead for S0 {
-    type Args<'a> = ();
-
-    fn read_options<R: Read + Seek>(
-        reader: &mut R,
-        endian: Endian,
-        (): Self::Args<'_>,
-    ) -> BinResult<Self> {
-        let s = NullString::read_options(reader, endian, ())?;
-        if !reader.stream_position().unwrap().is_multiple_of(2) {
-            reader.seek_relative(1)?
-        }
-        Ok(S0(s))
-    }
-}
-
-impl BinWrite for S0 {
-    type Args<'a> = ();
-
-    fn write_options<W: Write + Seek>(
-        &self,
-        writer: &mut W,
-        endian: Endian,
-        _args: Self::Args<'_>,
-    ) -> BinResult<()> {
-        self.0.write_options(writer, endian, _args)?;
-        if !writer.stream_position().unwrap().is_multiple_of(2) {
-            writer.write_all(&[0x00])?;
-        }
-        Ok(())
-    }
-}
-
-impl std::ops::Deref for S0 {
-    type Target = Vec<u8>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for S0 {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl From<&str> for S0 {
-    fn from(s: &str) -> Self {
-        Self(NullString(s.as_bytes().to_vec()))
-    }
-}
-
-impl From<String> for S0 {
-    fn from(s: String) -> Self {
-        Self(NullString(s.into_bytes()))
-    }
-}
-
-impl From<S0> for Vec<u8> {
-    fn from(s: S0) -> Self {
-        s.0.0
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
     use binrw::BinRead;
-
-    #[test]
-    fn test_s0() {
-        let mut reader = Cursor::new(b"a\0aa\0\0aaa\0");
-
-        let s: S0 = S0::read_be(&mut reader).unwrap();
-        assert_eq!(s, "a".into());
-
-        let s: S0 = S0::read_be(&mut reader).unwrap();
-        assert_eq!(s, "aa".into());
-
-        let s: S0 = S0::read_be(&mut reader).unwrap();
-        assert_eq!(s, "aaa".into());
-    }
+    use std::io::Cursor;
 
     #[test]
     fn test_vx() {
