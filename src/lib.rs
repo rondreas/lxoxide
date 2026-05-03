@@ -9,7 +9,7 @@ pub mod animation;
 pub mod item;
 pub mod primitives;
 
-use animation::Envelope;
+use animation::{Envelope, Action};
 use item::Item;
 
 #[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
@@ -143,6 +143,7 @@ pub enum Chunk {
     POLS(PolygonList),
     ITEM(Item),
     ENVL(Envelope),
+    ACTN(Action),
     Unknown { kind: ID4, position: u64, size: u32 },
 }
 
@@ -308,6 +309,10 @@ impl LuxologyFile {
                 "ENVL" => {
                     let envelope = Envelope::read_be(reader)?;
                     chunks.push(Chunk::ENVL(envelope));
+                }
+                "ACTN" => {
+                    let action = Action::read_be_args(reader, header.size)?;
+                    chunks.push(Chunk::ACTN(action));
                 }
                 _ => {
                     // push the unknown chunk, with offset and size so we can quickly find it

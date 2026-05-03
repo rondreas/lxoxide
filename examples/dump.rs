@@ -29,6 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Chunk::ITEM(item) => println!("Item {}", item.name.to_string()),
             Chunk::ENVL(envelope) => println!("{} Envelope", envelope.kind),
+            Chunk::ACTN(action) => println!("{} action", action.name),
             Chunk::Unknown {
                 kind: k,
                 position: p,
