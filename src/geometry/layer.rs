@@ -84,6 +84,23 @@ pub struct BoundingBox {
     pub max: Point,
 }
 
+#[derive(BinRead, Debug, PartialEq)]
+#[br(repr=i32)]
+pub enum UvSubdivisionKind {
+    Linear,
+    Subpatch,
+    SubpatchLinearCorners,
+    SubpatchLinearEdges,
+    SubpatchDiscoEdges,
+}
+
+#[derive(BinRead, Debug)]
+#[br(big)]
+pub struct VertexMapParameter {
+    pub uv_subdivision: UvSubdivisionKind,
+    pub sketch_color: i32,
+}
+
 #[derive(BinRead, Debug)]
 #[br(big)]
 pub struct Polygon {
@@ -219,5 +236,14 @@ mod tests {
 
         assert_eq!(bounds.min, [-0.5, -0.5, -0.5].into());
         assert_eq!(bounds.max, [0.5, 0.5, 0.5].into());
+    }
+
+    #[test]
+    fn cube_vertex_map_parameters() {
+        let mut reader = Cursor::new([ 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x06 ]);
+        let vmpa = VertexMapParameter::read_be(&mut reader).unwrap();
+
+        assert_eq!(vmpa.uv_subdivision, UvSubdivisionKind::Subpatch);
+        assert_eq!(vmpa.sketch_color, 6);
     }
 }
