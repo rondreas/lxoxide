@@ -225,25 +225,25 @@ impl BinRead for Action {
                 "CHAN" => {
                     let channel = ActionChannel::read_be(reader)?;
                     items.entry(current_item)
-                        .or_insert_with(|| vec![])
+                        .or_default()
                         .push(ActionChannels::CHAN(channel));
                 },
                 "CHNN" => {
                     let channel = ActionNamedChannel::read_be(reader)?;
                     items.entry(current_item)
-                        .or_insert_with(|| vec![])
+                        .or_default()
                         .push(ActionChannels::CHNN(channel));
                 },
                 "GRAD" => {
                     let channel = ActionGradient::read_be(reader)?;
                     items.entry(current_item)
-                        .or_insert_with(|| vec![])
+                        .or_default()
                         .push(ActionChannels::GRAD(channel));
                 },
                 "CHNS" => {
                     let channel = ActionString::read_be(reader)?;
                     items.entry(current_item)
-                        .or_insert_with(|| vec![])
+                        .or_default()
                         .push(ActionChannels::CHNS(channel));
                 },
                 _ => {
