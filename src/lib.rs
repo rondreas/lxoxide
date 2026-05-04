@@ -5,16 +5,16 @@ use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::path::Path as StdPath;
 use std::str::FromStr;
 
-pub mod primitives;
-pub mod meta;
-pub mod item;
 pub mod animation;
 pub mod geometry;
+pub mod item;
+pub mod meta;
+pub mod primitives;
 
-use meta::{ItemTags, ChannelNames};
+use animation::{Action, Envelope};
 use geometry::layer::{Layer, Points, PolygonList};
 use item::Item;
-use animation::{Envelope, Action};
+use meta::{ChannelNames, ItemTags};
 
 #[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ID4([u8; 4]);
@@ -296,11 +296,11 @@ impl LuxologyFile {
                 "TAGS" => {
                     let tags = ItemTags::read_be_args(reader, header.size).unwrap();
                     chunks.push(Chunk::TAGS(tags));
-                },
+                }
                 "CHNM" => {
                     let channel_names = ChannelNames::read_be_args(reader, header.size).unwrap();
                     chunks.push(Chunk::CHNM(channel_names));
-                },
+                }
                 "LAYR" => {
                     let layer: Layer = reader.read_be().unwrap();
                     chunks.push(Chunk::LAYR(layer));

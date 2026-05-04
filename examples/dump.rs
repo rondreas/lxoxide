@@ -1,5 +1,5 @@
-use std::iter::zip;
 use lxoxide::{Chunk, LuxologyFile};
+use std::iter::zip;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -24,14 +24,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 for tag in &tags.tags {
                     println!("  {tag}");
                 }
-            },
+            }
             Chunk::CHNM(channel_names) => {
                 println!("{} Channel names:", channel_names.count);
                 for (_, name) in zip(0..5, &channel_names.names) {
                     println!("  {name}");
                 }
                 println!("  ...");
-            },
+            }
             Chunk::LAYR(layer) => println!("Layer {}", layer),
             Chunk::PNTS(points) => println!("Points: {}", points.0.len()),
             Chunk::POLS(polygon_list) => {

@@ -1,9 +1,9 @@
+use crate::item::{ChannelValue, SubChunkHeader};
 use crate::primitives::VX;
 use binrw::{BinRead, BinResult, NullString};
-use std::io::{Read, Seek};
-use std::fmt;
-use crate::item::{SubChunkHeader, ChannelValue};
 use std::collections::HashMap;
+use std::fmt;
+use std::io::{Read, Seek};
 
 // todo: many subchunks here have a fixed size, so _size should be replace with some method to
 // 'skip' N bytes instead so we don't have a field for this in our structs. Maybe pad_before?
@@ -122,7 +122,7 @@ pub struct ActionChannel {
     pub kind: u16,
     pub envelope_index: VX,
     #[br(args(kind))]
-    pub variable: ChannelValue
+    pub variable: ChannelValue,
 }
 
 #[derive(BinRead, Debug)]
@@ -132,7 +132,7 @@ pub struct ActionNamedChannel {
     pub kind: u16,
     pub envelope_index: VX,
     #[br(args(kind))]
-    pub variable: ChannelValue
+    pub variable: ChannelValue,
 }
 
 #[derive(Debug)]
@@ -140,7 +140,7 @@ pub struct ActionGradient {
     pub channel_index: VX,
     pub envelope_index: VX,
     pub flags: u32,
-    pub name: Option<NullString>
+    pub name: Option<NullString>,
 }
 
 impl BinRead for ActionGradient {
@@ -164,7 +164,12 @@ impl BinRead for ActionGradient {
             }
         }
 
-        Ok(ActionGradient{channel_index, envelope_index, flags, name})
+        Ok(ActionGradient {
+            channel_index,
+            envelope_index,
+            flags,
+            name,
+        })
     }
 }
 
@@ -204,7 +209,7 @@ impl BinRead for Action {
         if !reader.stream_position().unwrap().is_multiple_of(2) {
             reader.seek_relative(1)?;
         }
-        
+
         let reference = u32::read_options(reader, endian, ())?;
 
         let mut parent = None;
@@ -220,46 +225,59 @@ impl BinRead for Action {
                 "ITEM" => {
                     current_item = u32::read_be(reader)?;
                     items.insert(current_item, Vec::new());
-                },
+                }
                 // These MUST come after ITEM subchunk,
                 "CHAN" => {
                     let channel = ActionChannel::read_be(reader)?;
-                    items.entry(current_item)
+                    items
+                        .entry(current_item)
                         .or_default()
                         .push(ActionChannels::CHAN(channel));
-                },
+                }
                 "CHNN" => {
                     let channel = ActionNamedChannel::read_be(reader)?;
-                    items.entry(current_item)
+                    items
+                        .entry(current_item)
                         .or_default()
                         .push(ActionChannels::CHNN(channel));
-                },
+                }
                 "GRAD" => {
                     let channel = ActionGradient::read_be(reader)?;
-                    items.entry(current_item)
+                    items
+                        .entry(current_item)
                         .or_default()
                         .push(ActionChannels::GRAD(channel));
-                },
+                }
                 "CHNS" => {
                     let channel = ActionString::read_be(reader)?;
-                    items.entry(current_item)
+                    items
+                        .entry(current_item)
                         .or_default()
                         .push(ActionChannels::CHNS(channel));
-                },
+                }
                 _ => {
                     let pos = reader.stream_position()?;
                     let mut unknown: Vec<u8> = vec![0u8; header.size as usize];
                     reader.read_exact(&mut unknown)?;
                     eprintln!(
                         "Unknown Action subchunk {} at {} size {}",
-                        header.kind.as_str(), pos - 6, header.size
+                        header.kind.as_str(),
+                        pos - 6,
+                        header.size
                     );
                     unknowns.push((header, unknown));
                 }
             }
         }
 
-        Ok(Action{name, kind, reference, parent, items, unknowns})
+        Ok(Action {
+            name,
+            kind,
+            reference,
+            parent,
+            items,
+            unknowns,
+        })
     }
 }
 
@@ -292,9 +310,9 @@ mod tests {
     #[test]
     fn test_parsing_action() {
         let mut reader = Cursor::new([
-          0x41, 0x43, 0x54, 0x4e, 0x00, 0x00, 0x00, 0x1a, 0x73, 0x63, 0x65, 0x6e,
-          0x65, 0x00, 0x73, 0x63, 0x65, 0x6e, 0x65, 0x00, 0x00, 0x00, 0x00, 0x01,
-          0x50, 0x52, 0x4e, 0x54, 0x00, 0x04, 0x00, 0x00, 0x00, 0x02
+            0x41, 0x43, 0x54, 0x4e, 0x00, 0x00, 0x00, 0x1a, 0x73, 0x63, 0x65, 0x6e, 0x65, 0x00,
+            0x73, 0x63, 0x65, 0x6e, 0x65, 0x00, 0x00, 0x00, 0x00, 0x01, 0x50, 0x52, 0x4e, 0x54,
+            0x00, 0x04, 0x00, 0x00, 0x00, 0x02,
         ]);
 
         let header = ChunkHeader::read_be(&mut reader).unwrap();
@@ -309,9 +327,7 @@ mod tests {
 
     #[test]
     fn test_parsing_action_channel() {
-        let mut reader = Cursor::new(
-            [0x01, 0xa5, 0x00, 0x02, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00]
-        );
+        let mut reader = Cursor::new([0x01, 0xa5, 0x00, 0x02, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00]);
         let channel = ActionChannel::read_be(&mut reader).unwrap();
         assert_eq!(channel.channel_index, VX::U2(421));
         assert_eq!(channel.kind, 2);
