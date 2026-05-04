@@ -49,7 +49,7 @@ impl fmt::Display for Layer {
     }
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, Debug, PartialEq)]
 #[br(big)]
 pub struct Point(pub [f32; 3]);
 
@@ -67,9 +67,22 @@ impl Point {
     }
 }
 
+impl From<[f32; 3]> for Point {
+    fn from(arr: [f32; 3]) -> Point {
+        Point(arr)
+    }
+}
+
 #[derive(BinRead, Debug)]
 #[br(big, import(count: u32))]
 pub struct Points(#[br( count = count )] pub Vec<Point>);
+
+#[derive(BinRead, Debug)]
+#[br(big)]
+pub struct BoundingBox {
+    pub min: Point,
+    pub max: Point,
+}
 
 #[derive(BinRead, Debug)]
 #[br(big)]
@@ -191,5 +204,20 @@ mod tests {
                 .iter()
                 .all(|polygon| polygon.vertex_count == 4)
         );
+    }
+
+    #[test]
+    fn cube_bounding_box() {
+        let mut reader = Cursor::new([
+          0x42, 0x42, 0x4f, 0x58, 0x00, 0x00, 0x00, 0x18, 0xbf, 0x00, 0x00, 0x00,
+          0xbf, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00,
+          0x3f, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00
+        ]);
+
+        let _ = ChunkHeader::read_be(&mut reader).unwrap();
+        let bounds = BoundingBox::read_be(&mut reader).unwrap();
+
+        assert_eq!(bounds.min, [-0.5, -0.5, -0.5].into());
+        assert_eq!(bounds.max, [ 0.5,  0.5,  0.5].into());
     }
 }
