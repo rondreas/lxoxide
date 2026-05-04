@@ -148,7 +148,7 @@ impl BinRead for ActionGradient {
 
     fn read_options<R: Read + Seek>(
         reader: &mut R,
-        endian: binrw::Endian,
+        _endian: binrw::Endian,
         size: Self::Args<'_>,
     ) -> BinResult<ActionGradient> {
         let start = reader.stream_position()?;
@@ -215,7 +215,6 @@ impl BinRead for Action {
 
         while reader.stream_position()? - start < size as u64 {
             let header = SubChunkHeader::read_be(reader)?;
-            eprintln!("{}", header.kind.as_str());
             match header.kind.as_str() {
                 "PRNT" => parent = Some(u32::read_be(reader)?),
                 "ITEM" => {
@@ -249,7 +248,7 @@ impl BinRead for Action {
                 },
                 _ => {
                     let pos = reader.stream_position()?;
-                    let mut unknown: Vec<u8> = Vec::with_capacity(header.size as usize);
+                    let mut unknown: Vec<u8> = vec![0u8; header.size as usize];
                     reader.read_exact(&mut unknown)?;
                     eprintln!(
                         "Unknown Action subchunk {} at {} size {}",
@@ -287,7 +286,7 @@ mod tests {
         ]);
 
         let _ = ChunkHeader::read_be(&mut reader).unwrap();
-        let envelope = Envelope::read_be(&mut reader).unwrap();
+        let _envelope = Envelope::read_be(&mut reader).unwrap();
     }
 
     #[test]

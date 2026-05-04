@@ -5,12 +5,16 @@ use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::path::Path as StdPath;
 use std::str::FromStr;
 
-pub mod animation;
-pub mod item;
 pub mod primitives;
+pub mod meta;
+pub mod item;
+pub mod animation;
+pub mod geometry;
 
-use animation::{Envelope, Action};
+use meta::{ItemTags, ChannelNames};
+use geometry::layer::{Layer, Points, PolygonList};
 use item::Item;
+use animation::{Envelope, Action};
 
 #[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ID4([u8; 4]);
@@ -112,9 +116,6 @@ impl Extension {
     }
 }
 
-pub mod geometry;
-use geometry::layer::{Layer, Points, PolygonList};
-
 #[derive(BinRead, Debug)]
 #[br(magic = b"FORM")]
 pub struct Header {
@@ -138,6 +139,8 @@ pub enum Chunk {
     VRSN(Version),
     APPV(ApplicationVersion),
     ENCO(Encoding),
+    TAGS(ItemTags),
+    CHNM(ChannelNames),
     LAYR(Layer),
     PNTS(Points),
     POLS(PolygonList),
@@ -290,6 +293,14 @@ impl LuxologyFile {
                     let encoding: Encoding = reader.read_be().unwrap();
                     chunks.push(Chunk::ENCO(encoding));
                 }
+                "TAGS" => {
+                    let tags = ItemTags::read_be_args(reader, header.size).unwrap();
+                    chunks.push(Chunk::TAGS(tags));
+                },
+                "CHNM" => {
+                    let channel_names = ChannelNames::read_be_args(reader, header.size).unwrap();
+                    chunks.push(Chunk::CHNM(channel_names));
+                },
                 "LAYR" => {
                     let layer: Layer = reader.read_be().unwrap();
                     chunks.push(Chunk::LAYR(layer));
