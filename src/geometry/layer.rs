@@ -101,6 +101,42 @@ pub struct VertexMapParameter {
     pub sketch_color: i32,
 }
 
+#[derive(Debug)]
+pub struct VertexMap {
+    pub kind: ID4,
+    pub dimension: u16,
+    pub name: NullString,
+    pub data: Vec<(VX, Vec<f32>)>
+}
+
+impl BinRead for VertexMap {
+    type Args<'a> = u32;
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        _endian: Endian,
+        size: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let start = reader.stream_position()?;
+        let kind = ID4::read_be(reader)?;
+        let dimension = u16::read_be(reader)?;
+        let name = NullString::read_be(reader)?;
+
+        let mut data = vec![];
+        while reader.stream_position()? - start < size as u64 {
+            let index = VX::read_be(reader)?;
+            let mut values: Vec<f32> = vec![0.0; dimension as usize];
+            for i in 0..dimension as usize {
+                values[i] = f32::read_be(reader)?;
+            }
+
+            data.push((index, values));
+        }
+
+        Ok(VertexMap { kind, dimension, name, data })
+    }
+}
+
 #[derive(BinRead, Debug)]
 #[br(big)]
 pub struct Polygon {
@@ -245,5 +281,27 @@ mod tests {
 
         assert_eq!(vmpa.uv_subdivision, UvSubdivisionKind::Subpatch);
         assert_eq!(vmpa.sketch_color, 6);
+    }
+
+    #[test]
+    fn cube_vertex_map() {
+        let mut reader = Cursor::new([
+            0x56, 0x4d, 0x41, 0x50, 0x00, 0x00, 0x00, 0x5e, 0x54, 0x58, 0x55, 0x56,
+            0x00, 0x02, 0x54, 0x65, 0x78, 0x74, 0x75, 0x72, 0x65, 0x00, 0x00, 0x07,
+            0x3e, 0x80, 0x00, 0x00, 0x3f, 0x2a, 0xaa, 0xab, 0x00, 0x06, 0x3f, 0x00,
+            0x00, 0x00, 0x3f, 0x2a, 0xaa, 0xab, 0x00, 0x05, 0x3f, 0x40, 0x00, 0x00,
+            0x3f, 0x2a, 0xaa, 0xab, 0x00, 0x04, 0x3f, 0x80, 0x00, 0x00, 0x3f, 0x2a,
+            0xaa, 0xab, 0x00, 0x03, 0x3e, 0x80, 0x00, 0x00, 0x3e, 0xaa, 0xaa, 0xab,
+            0x00, 0x02, 0x3f, 0x00, 0x00, 0x00, 0x3e, 0xaa, 0xaa, 0xab, 0x00, 0x01,
+            0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3e, 0x80,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        ]);
+        let header: ChunkHeader = reader.read_be().unwrap();
+        let vmap = VertexMap::read_be_args(&mut reader, header.size).unwrap();
+
+        assert_eq!(vmap.kind, "TXUV");
+        assert_eq!(vmap.dimension, 2);
+        assert_eq!(vmap.name, "Texture".into());
+        assert_eq!(vmap.data.len(), 8);
     }
 }
