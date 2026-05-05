@@ -34,6 +34,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Chunk::LAYR(layer) => println!("Layer {}", layer),
             Chunk::PNTS(points) => println!("Points: {}", points.0.len()),
+            Chunk::VMPA(params) => {
+                println!("Vertex Map Parameters:");
+                println!("  UV Subdiv type: {:?}", params.uv_subdivision);
+                println!("  Sketch Color: {}", params.sketch_color);
+            }
+            Chunk::VMAP(vmap) => {
+                println!("{} Vertex Map {}", vmap.kind, vmap.name)
+            }
             Chunk::POLS(polygon_list) => {
                 println!(
                     "{} {} type Polygons",
@@ -41,9 +49,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     polygon_list.kind
                 )
             }
+            Chunk::VMAD(vmad) => {
+                println!("{} Discont. Vertex Map {}", vmad.kind, vmad.name)
+            }
+            Chunk::PTAG(ptag) => {
+                println!("{} Polygon Tag", ptag.kind)
+            }
             Chunk::ITEM(item) => println!("Item {}", item.name.to_string()),
             Chunk::ENVL(envelope) => println!("{} Envelope", envelope.kind),
             Chunk::ACTN(action) => println!("{} action", action.name),
+            Chunk::AANI(audio) => {
+                println!("Audio");
+                if audio.settings.is_some() {
+                    let settings = audio.settings.as_ref().unwrap();
+                    println!(
+                        "  Settings loop: {}, mute: {}, scrub: {}, start: {}",
+                        settings.r#loop, settings.mute, settings.scrub, settings.start
+                    );
+                }
+            }
             Chunk::Unknown {
                 kind: k,
                 position: p,

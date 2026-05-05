@@ -1,10 +1,11 @@
 use crate::item::SubChunkHeader;
-use std::io::{Read, Seek};
 use binrw::{BinRead, BinResult};
+use std::io::{Read, Seek};
 
+#[derive(Debug)]
 pub struct Audio {
-    pub item: Option<u32>,  // assuming this is index to item list
-    pub settings: Option<AudioSettings>
+    pub item: Option<u32>, // assuming this is index to item list
+    pub settings: Option<AudioSettings>,
 }
 
 impl BinRead for Audio {
@@ -23,8 +24,8 @@ impl BinRead for Audio {
         while reader.stream_position()? - start < size as u64 {
             let header = SubChunkHeader::read_be(reader)?;
             match header.kind.as_str() {
-                "AAIT" => { item = Some(u32::read_be(reader)?) },
-                "AASE" => { settings = Some(AudioSettings::read_be(reader)?) },
+                "AAIT" => item = Some(u32::read_be(reader)?),
+                "AASE" => settings = Some(AudioSettings::read_be(reader)?),
                 _ => {
                     // get the position for start of this subchunk,
                     let pos = reader.stream_position()? - 6;
@@ -35,7 +36,7 @@ impl BinRead for Audio {
             }
         }
 
-        Ok(Audio{ item, settings })
+        Ok(Audio { item, settings })
     }
 }
 

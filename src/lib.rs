@@ -8,13 +8,17 @@ use std::str::FromStr;
 pub mod animation;
 pub mod geometry;
 pub mod item;
+pub mod media;
 pub mod meta;
 pub mod primitives;
-pub mod media;
 
 use animation::{Action, Envelope};
-use geometry::layer::{Layer, Points, PolygonList};
+use geometry::layer::{
+    DiscontinousVertexMap, Layer, Points, PolygonList, PolygonTagMapping, VertexMap,
+    VertexMapParameter,
+};
 use item::Item;
+use media::Audio;
 use meta::{ChannelNames, ItemTags};
 
 #[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,10 +148,15 @@ pub enum Chunk {
     CHNM(ChannelNames),
     LAYR(Layer),
     PNTS(Points),
+    VMPA(VertexMapParameter),
+    VMAP(VertexMap),
     POLS(PolygonList),
+    VMAD(DiscontinousVertexMap),
+    PTAG(PolygonTagMapping),
     ITEM(Item),
     ENVL(Envelope),
     ACTN(Action),
+    AANI(Audio),
     Unknown { kind: ID4, position: u64, size: u32 },
 }
 
@@ -310,9 +319,25 @@ impl LuxologyFile {
                     let points = Points::read_args(reader, (header.size / 12,)).unwrap();
                     chunks.push(Chunk::PNTS(points));
                 }
+                "VMPA" => {
+                    let vertex_params = VertexMapParameter::read_be(reader)?;
+                    chunks.push(Chunk::VMPA(vertex_params));
+                }
+                "VMAP" => {
+                    let vertex_map = VertexMap::read_be_args(reader, header.size)?;
+                    chunks.push(Chunk::VMAP(vertex_map));
+                }
                 "POLS" => {
                     let polygon_list = PolygonList::read_args(reader, header.size).unwrap();
                     chunks.push(Chunk::POLS(polygon_list));
+                }
+                "VMAD" => {
+                    let vmad = DiscontinousVertexMap::read_be_args(reader, header.size)?;
+                    chunks.push(Chunk::VMAD(vmad));
+                }
+                "PTAG" => {
+                    let ptag = PolygonTagMapping::read_be_args(reader, header.size)?;
+                    chunks.push(Chunk::PTAG(ptag));
                 }
                 "ITEM" => {
                     let item = Item::read_args(reader, header.size)?;
@@ -325,6 +350,10 @@ impl LuxologyFile {
                 "ACTN" => {
                     let action = Action::read_be_args(reader, header.size)?;
                     chunks.push(Chunk::ACTN(action));
+                }
+                "AANI" => {
+                    let audio = Audio::read_be_args(reader, header.size)?;
+                    chunks.push(Chunk::AANI(audio));
                 }
                 _ => {
                     // push the unknown chunk, with offset and size so we can quickly find it

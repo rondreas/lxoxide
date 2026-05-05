@@ -1,7 +1,7 @@
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{BinRead, BinResult, Endian};
-use std::io::{Read, Seek};
 use std::fmt;
+use std::io::{Read, Seek};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VX {
