@@ -1,6 +1,7 @@
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{BinRead, BinResult, Endian};
 use std::io::{Read, Seek};
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum VX {
@@ -27,6 +28,15 @@ impl BinRead for VX {
 
 impl ReadEndian for VX {
     const ENDIAN: EndianKind = EndianKind::Endian(binrw::Endian::Big);
+}
+
+impl fmt::Display for VX {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::U2(n) => write!(f, "{n}"),
+            Self::U4(n) => write!(f, "{n}"),
+        }
+    }
 }
 
 #[cfg(test)]
