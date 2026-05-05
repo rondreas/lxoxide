@@ -10,6 +10,7 @@ pub mod geometry;
 pub mod item;
 pub mod meta;
 pub mod primitives;
+pub mod media;
 
 use animation::{Action, Envelope};
 use geometry::layer::{Layer, Points, PolygonList};
