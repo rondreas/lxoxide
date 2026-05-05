@@ -393,4 +393,18 @@ mod tests {
         let _vmap = DiscontinousVertexMap::read_be_args(&mut reader, header.size).unwrap();
         assert_eq!(reader.stream_position().unwrap(), 106, "Failed to read the whole chunk");
     }
+
+    #[test]
+    fn cube_matr_ptags() {
+        let mut reader = Cursor::new([
+            0x50, 0x54, 0x41, 0x47, 0x00, 0x00, 0x00, 0x1c, 0x4d, 0x41, 0x54, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01,
+            0x00, 0x03, 0x00, 0x01, 0x00, 0x04, 0x00, 0x01, 0x00, 0x05, 0x00, 0x01
+        ]);
+        let header: ChunkHeader = reader.read_be().unwrap();
+        let ptags = PolygonTagMapping::read_be_args(&mut reader, header.size).unwrap();
+
+        assert_eq!(ptags.tags.len(), 6);
+        assert!(ptags.tags.iter().all(|(_, v)| *v == 1));
+    }
 }
