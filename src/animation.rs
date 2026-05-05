@@ -1,7 +1,7 @@
 use crate::item::{ChannelValue, SubChunkHeader};
 use crate::primitives::VX;
 use binrw::{BinRead, BinResult, NullString};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{Read, Seek};
 
@@ -110,7 +110,7 @@ pub struct Action {
     // pub flags: u32, NOTE: Spec mentions this field, but it is missing from example scenes.
     //
     pub parent: Option<u32>,
-    pub items: HashMap<u32, Vec<ActionChannels>>,
+    pub items: BTreeMap<u32, Vec<ActionChannels>>,
 
     // container for unknown chunks... so we don't loose data in roundtrips.
     pub unknowns: Vec<(SubChunkHeader, Vec<u8>)>,
@@ -213,7 +213,7 @@ impl BinRead for Action {
         let reference = u32::read_options(reader, endian, ())?;
 
         let mut parent = None;
-        let mut items: HashMap<u32, Vec<ActionChannels>> = HashMap::new();
+        let mut items: BTreeMap<u32, Vec<ActionChannels>> = BTreeMap::new();
         let mut current_item = 0;
 
         let mut unknowns: Vec<(SubChunkHeader, Vec<u8>)> = Vec::new();
@@ -223,6 +223,7 @@ impl BinRead for Action {
             match header.kind.as_str() {
                 "PRNT" => parent = Some(u32::read_be(reader)?),
                 "ITEM" => {
+                    // index into lxo items
                     current_item = u32::read_be(reader)?;
                     items.insert(current_item, Vec::new());
                 }
