@@ -3,7 +3,7 @@ use binrw::{BinRead, BinResult, Endian};
 use std::io::{Read, Seek};
 use std::fmt;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VX {
     U2(u16),
     U4(u32),

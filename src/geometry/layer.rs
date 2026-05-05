@@ -3,6 +3,7 @@ use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{BinRead, BinResult, Endian, NullString};
 use bitflags::bitflags;
 use std::io::{Read, Seek};
+use std::collections::BTreeMap;
 
 use crate::ID4;
 use crate::primitives::VX;
@@ -121,6 +122,9 @@ impl BinRead for VertexMap {
         let kind = ID4::read_be(reader)?;
         let dimension = u16::read_be(reader)?;
         let name = NullString::read_be(reader)?;
+        if !reader.stream_position().unwrap().is_multiple_of(2) {
+            reader.seek_relative(1)?;
+        }
 
         let mut data = vec![];
         while reader.stream_position()? - start < size as u64 {
@@ -157,6 +161,9 @@ impl BinRead for DiscontinousVertexMap {
         let kind = ID4::read_be(reader)?;
         let dimension = u16::read_be(reader)?;
         let name = NullString::read_be(reader)?;
+        if !reader.stream_position().unwrap().is_multiple_of(2) {
+            reader.seek_relative(1)?;
+        }
 
         let mut data = vec![];
         while reader.stream_position()? - start < size as u64 {
@@ -207,6 +214,32 @@ impl BinRead for PolygonList {
             polygons.push(Polygon::read_be(reader)?);
         }
         Ok(PolygonList { kind, polygons })
+    }
+}
+
+#[derive(Debug)]
+pub struct PolygonTagMapping {
+    pub kind: ID4,
+    pub tags: BTreeMap<VX, u16>
+}
+
+impl BinRead for PolygonTagMapping {
+    type Args<'a> = u32;
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        _endian: Endian,
+        size: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let start = reader.stream_position()?;
+        let kind = ID4::read_be(reader)?;
+        let mut tags = BTreeMap::new();
+        while reader.stream_position()? - start < size as u64 {
+            let poly = VX::read_be(reader)?;
+            let tag = u16::read_be(reader)?;
+            tags.insert(poly, tag);
+        }
+        Ok(PolygonTagMapping { kind, tags })
     }
 }
 
