@@ -21,6 +21,16 @@ pub struct Layer {
     pub color: [u8; 4],
 }
 
+// not to be confused with the Chunk XREF, this is a subchunk in item
+#[derive(BinRead, Debug)]
+pub struct Reference {
+    pub index: u32,
+    #[br(align_after = 2)]
+    pub path: NullString,
+    #[br(align_after = 2)]
+    pub ident: NullString
+}
+
 #[derive(BinRead, Debug, Clone, PartialEq)]
 #[br(big)]
 pub struct Package {

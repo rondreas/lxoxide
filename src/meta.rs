@@ -1,5 +1,44 @@
 use binrw::{BinRead, BinResult, NullString};
 use std::io::{Read, Seek};
+use crate::item::SubChunkHeader;
+
+// todo: create a scene with multiple references to see if each ref get's it's own IASS
+// or if each reference is a XREF subchunk for IASS
+#[derive(Debug)]
+pub struct IncludeAsSubscene {
+    pub reference: SubsceneReference
+}
+
+#[derive(BinRead, Debug)]
+pub struct SubsceneReference {
+    #[br(align_after = 2)]
+    pub name: NullString,
+    #[br(align_after = 2)]
+    pub path: NullString,
+}
+
+#[derive(Debug)]
+pub struct Subscene {
+    pub path: NullString,
+    pub name: NullString,
+    pub item_references: Vec<ItemReference>,
+}
+
+#[derive(BinRead, Debug)]
+pub struct ItemReference {
+    #[br(align_after = 2)]
+    pub ident: NullString,
+    #[br(align_after = 2)]
+    pub name: NullString,
+    #[br(align_after = 2)]
+    pub kind: NullString,
+}
+
+// todo: XREF chunk, no idea what the content means... IDEL & XMAN
+#[derive(BinRead, Debug)]
+#[br(import(count: u32))]
+pub struct Reference(#[br(count = count)] Vec<u8>);
+
 
 #[derive(Debug)]
 pub struct ItemTags {
@@ -75,5 +114,26 @@ mod tests {
             itags.tags,
             vec![NullString("Default".into()), NullString("Default".into())]
         );
+    }
+
+    #[test]
+    fn item_reference() {
+        let mut reader = Cursor::new([
+            0x49, 0x52, 0x45, 0x46, 0x00, 0x32, 0x72, 0x65, 0x6e, 0x64, 0x65, 0x72,
+            0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x30, 0x32, 0x35, 0x00, 0x46, 0x69,
+            0x6e, 0x61, 0x6c, 0x20, 0x43, 0x6f, 0x6c, 0x6f, 0x72, 0x20, 0x4f, 0x75,
+            0x74, 0x70, 0x75, 0x74, 0x00, 0x00, 0x72, 0x65, 0x6e, 0x64, 0x65, 0x72,
+            0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x00, 0x00
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        assert_eq!(header.kind, "IREF");
+        assert_eq!(header.size, 50);
+
+        let iref = ItemReference::read_be(&mut reader).unwrap();
+
+        assert_eq!(iref.ident, "renderOutput025".into());
+        assert_eq!(iref.name, "Final Color Output".into());
+        assert_eq!(iref.kind, "renderOutput".into());
     }
 }
