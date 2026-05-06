@@ -202,6 +202,7 @@ pub struct ScalarChannel {
     #[br(align_after = 2)]
     pub name: NullString,
     pub kind: u16,
+    #[br(args(kind))]
     pub value: ChannelValue,
 }
 
