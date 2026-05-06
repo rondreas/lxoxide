@@ -268,7 +268,7 @@ impl LuxologyFile {
         // Check that the reported size of content, matches file size
         // Modo will however happily go ahead and just parse the first file if we concat
         // two files. Causing the second FORM to just be dropped when saving.
-        if meta.len() == header.size as u64 + 12 {
+        if meta.len() != header.size as u64 + 8 {
             return Err(ParseError::InvalidSize);
         }
 
