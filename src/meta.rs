@@ -1,6 +1,27 @@
 use binrw::{BinRead, BinResult, NullString};
 use std::io::{Read, Seek};
 use crate::item::SubChunkHeader;
+use crate::utils::read_aligned_nullstring;
+
+#[derive(BinRead, Debug)]
+pub struct Description {
+    #[br(align_after = 2)]
+    pub text: NullString,
+    pub num: u16,
+}
+
+// a single black pixel in PNG is 67 bytes, and we want event numbers. 
+// That + other fields is smallest size.
+#[derive(BinRead, Debug)]
+#[br(import(size: u32), assert(size > 12 + 68))]
+pub struct Preview {
+    pub width: u16,
+    pub height: u16,
+    pub kind: u32,
+    pub flags: u32,
+    #[br(count = size - 12)]
+    pub data: Vec<u8>,
+}
 
 // todo: create a scene with multiple references to see if each ref get's it's own IASS
 // or if each reference is a XREF subchunk for IASS
@@ -24,6 +45,31 @@ pub struct Subscene {
     pub item_references: Vec<ItemReference>,
 }
 
+impl BinRead for Subscene {
+    type Args<'a> = u32;
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        _endian: binrw::Endian,
+        size: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let start = reader.stream_position()?;
+        let path = read_aligned_nullstring(reader)?;
+        let name = read_aligned_nullstring(reader)?;
+        let mut item_references = vec![];
+        if reader.stream_position()? - start < size as u64 {
+            let header = SubChunkHeader::read_be(reader)?;
+            if header.kind == "IREF" {
+                item_references.push(ItemReference::read_be(reader)?);
+            } else {
+                eprintln!("Unknown subchunk of SUBS {}", header.kind);
+                reader.seek_relative(header.size as i64)?;
+            }
+        }
+        Ok(Subscene{path, name, item_references})
+    }
+}
+
 #[derive(BinRead, Debug)]
 pub struct ItemReference {
     #[br(align_after = 2)]
@@ -36,9 +82,8 @@ pub struct ItemReference {
 
 // todo: XREF chunk, no idea what the content means... IDEL & XMAN
 #[derive(BinRead, Debug)]
-#[br(import(count: u32))]
-pub struct Reference(#[br(count = count)] Vec<u8>);
-
+#[br(import(size: u32))]
+pub struct Reference(#[br(count = size)] Vec<u8>);
 
 #[derive(Debug)]
 pub struct ItemTags {
@@ -94,11 +139,35 @@ impl BinRead for ChannelNames {
     }
 }
 
+#[derive(BinRead, Debug)]
+#[br(big)]
+pub struct Parent {
+    #[br(align_after = 2)]
+    pub name: NullString,
+    pub num: u32  // todo: better name for field, is it a ref? index into another list of chunks?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ChunkHeader;
     use std::io::Cursor;
+
+    #[test]
+    fn description() {
+        let mut reader = Cursor::new([
+            0x44, 0x45, 0x53, 0x43, 0x00, 0x00, 0x00, 0x0a, 0x6c, 0x6f, 0x63, 0x61,
+            0x74, 0x6f, 0x72, 0x00, 0x00, 0x00
+        ]);
+        let _ = ChunkHeader::read_be(&mut reader).unwrap();
+        let desc = Description::read_be(&mut reader).unwrap();
+
+        assert_eq!(desc.text, "locator".into());
+        assert_eq!(desc.num, 0);
+
+        // assert we've consumed all bytes for chunk
+        assert_eq!(reader.stream_position().unwrap(), 18);
+    }
 
     #[test]
     fn test_item_tags() {
@@ -135,5 +204,20 @@ mod tests {
         assert_eq!(iref.ident, "renderOutput025".into());
         assert_eq!(iref.name, "Final Color Output".into());
         assert_eq!(iref.kind, "renderOutput".into());
+    }
+
+    #[test]
+    fn parent() {
+        let mut reader = Cursor::new([
+            0x50, 0x52, 0x4e, 0x54, 0x00, 0x00, 0x00, 0x0c, 0x28, 0x6e, 0x6f, 0x6e,
+            0x65, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        ]);
+        let _ = ChunkHeader::read_be(&mut reader).unwrap();
+        let parent = Parent::read_be(&mut reader).unwrap();
+
+        assert_eq!(parent.name, "(none)".into());
+        assert_eq!(parent.num, 0);
+
+        assert_eq!(reader.stream_position().unwrap(), 20);
     }
 }
