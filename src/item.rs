@@ -1,5 +1,6 @@
 use crate::ID4;
 use crate::primitives::VX;
+use crate::utils::read_aligned_nullstring;
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{
     BinRead, BinResult, Endian, NullString,
@@ -102,10 +103,7 @@ impl BinRead for VectorChannel {
         _endian: binrw::Endian,
         (): Self::Args<'_>,
     ) -> BinResult<Self> {
-        let name = NullString::read_options(reader, _endian, ())?;
-        if !reader.stream_position().unwrap().is_multiple_of(2) {
-            reader.seek_relative(1)?;
-        }
+        let name = read_aligned_nullstring(reader)?;
         let kind = u16::read_be(reader)?;
         let dimensions = u16::read_be(reader)?;
         let mut elements = Vec::with_capacity(dimensions as usize);
@@ -135,10 +133,7 @@ impl BinRead for VectorElement {
         _endian: binrw::Endian,
         flag: Self::Args<'_>,
     ) -> BinResult<VectorElement> {
-        let name = NullString::read_options(reader, _endian, ())?;
-        if !reader.stream_position().unwrap().is_multiple_of(2) {
-            reader.seek_relative(1)?;
-        }
+        let name = read_aligned_nullstring(reader)?;
         let value = ChannelValue::read_be_args(reader, (flag,))?;
         Ok(VectorElement { name, value })
     }
@@ -191,13 +186,7 @@ impl BinRead for ChannelValue {
                 (),
             )?)),
             0x2 | 0x12 => Ok(ChannelValue::Float(f32::read_options(reader, endian, ())?)),
-            0x3 | 0x13 => {
-                let s = NullString::read_options(reader, endian, ())?;
-                if !reader.stream_position().unwrap().is_multiple_of(2) {
-                    reader.seek_relative(1)?;
-                }
-                Ok(ChannelValue::String(s))
-            }
+            0x3 | 0x13 => Ok(ChannelValue::String(read_aligned_nullstring(reader)?)),
             _ => {
                 let pos = reader.stream_position()?;
                 panic!("Invalid ItemFlag {} at: {}", flag.0, pos)
@@ -255,14 +244,8 @@ impl BinRead for Item {
         size: Self::Args<'_>,
     ) -> BinResult<Self> {
         let start = reader.stream_position()?;
-        let kind = NullString::read_options(reader, endian, ())?;
-        if !reader.stream_position().unwrap().is_multiple_of(2) {
-            reader.seek_relative(1)?;
-        }
-        let name = NullString::read_options(reader, endian, ())?;
-        if !reader.stream_position().unwrap().is_multiple_of(2) {
-            reader.seek_relative(1)?;
-        }
+        let kind = read_aligned_nullstring(reader)?;
+        let name = read_aligned_nullstring(reader)?;
         let id = u32::read_options(reader, endian, ())?;
 
         let mut subchunks = Vec::new();

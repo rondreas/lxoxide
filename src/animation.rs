@@ -1,5 +1,6 @@
 use crate::item::{ChannelValue, SubChunkHeader};
 use crate::primitives::VX;
+use crate::utils::read_aligned_nullstring;
 use binrw::{BinRead, BinResult, NullString};
 use std::collections::BTreeMap;
 use std::fmt;
@@ -158,10 +159,7 @@ impl BinRead for ActionGradient {
 
         let mut name = None;
         if reader.stream_position()? - start < size as u64 {
-            name = Some(NullString::read_be(reader)?);
-            if !reader.stream_position()?.is_multiple_of(2) {
-                reader.seek_relative(1)?;
-            }
+            name = Some(read_aligned_nullstring(reader)?);
         }
 
         Ok(ActionGradient {
@@ -200,15 +198,9 @@ impl BinRead for Action {
     ) -> BinResult<Action> {
         let start = reader.stream_position()?;
 
-        let name = NullString::read_options(reader, endian, ())?;
-        if !reader.stream_position().unwrap().is_multiple_of(2) {
-            reader.seek_relative(1)?;
-        }
+        let name = read_aligned_nullstring(reader)?;
 
-        let kind = NullString::read_options(reader, endian, ())?;
-        if !reader.stream_position().unwrap().is_multiple_of(2) {
-            reader.seek_relative(1)?;
-        }
+        let kind = read_aligned_nullstring(reader)?;
 
         let reference = u32::read_options(reader, endian, ())?;
 

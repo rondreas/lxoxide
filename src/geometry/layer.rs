@@ -7,6 +7,7 @@ use std::io::{Read, Seek};
 
 use crate::ID4;
 use crate::primitives::VX;
+use crate::utils::read_aligned_nullstring;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -121,10 +122,7 @@ impl BinRead for VertexMap {
         let start = reader.stream_position()?;
         let kind = ID4::read_be(reader)?;
         let dimension = u16::read_be(reader)?;
-        let name = NullString::read_be(reader)?;
-        if !reader.stream_position().unwrap().is_multiple_of(2) {
-            reader.seek_relative(1)?;
-        }
+        let name = read_aligned_nullstring(reader)?;
 
         let mut data = vec![];
         while reader.stream_position()? - start < size as u64 {
@@ -165,10 +163,7 @@ impl BinRead for DiscontinousVertexMap {
         let start = reader.stream_position()?;
         let kind = ID4::read_be(reader)?;
         let dimension = u16::read_be(reader)?;
-        let name = NullString::read_be(reader)?;
-        if !reader.stream_position().unwrap().is_multiple_of(2) {
-            reader.seek_relative(1)?;
-        }
+        let name = read_aligned_nullstring(reader)?;
 
         let mut data = vec![];
         while reader.stream_position()? - start < size as u64 {

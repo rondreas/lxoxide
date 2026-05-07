@@ -1,6 +1,7 @@
 use binrw::{BinRead, NullString, Endian, BinResult};
 use crate::ID4;
 use crate::geometry::layer::Point;
+use crate::utils::read_aligned_nullstring;
 use std::io::{Read, Seek};
 
 #[derive(Debug, BinRead)]
@@ -47,10 +48,7 @@ impl BinRead for TriSurfVertexVectors {
 
         let kind = ID4::read_be(reader)?;
         let dimensions = u32::read_be(reader)?;
-        let name = NullString::read_be(reader)?;
-        if !reader.stream_position()?.is_multiple_of(2) {
-            reader.seek_relative(1)?;
-        }
+        let name = read_aligned_nullstring(reader)?;
 
         let mut vectors = Vec::new();
         if reader.stream_position()? - start < size as u64 {
@@ -81,10 +79,7 @@ impl BinRead for TriSurfTags {
         let start = reader.stream_position()?;
         if reader.stream_position()? - start < size as u64 {
             let kind = ID4::read_be(reader)?;
-            let name = NullString::read_be(reader)?;
-            if !reader.stream_position()?.is_multiple_of(2) {
-                reader.seek_relative(1)?;
-            }
+            let name = read_aligned_nullstring(reader)?;
 
             tags.push((kind, name));
         }
