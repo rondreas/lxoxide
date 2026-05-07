@@ -1,13 +1,11 @@
-use ::std::fmt;
+use crate::primitives::{ID4, Point, VX};
+use crate::utils::read_aligned_nullstring;
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{BinRead, BinResult, Endian, NullString};
 use bitflags::bitflags;
 use std::collections::BTreeMap;
+use std::fmt;
 use std::io::{Read, Seek};
-
-use crate::ID4;
-use crate::primitives::VX;
-use crate::utils::read_aligned_nullstring;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -48,30 +46,6 @@ impl fmt::Display for Layer {
             let _ = write!(f, "{}", self.index);
         }
         write!(f, "{}", self.name)
-    }
-}
-
-#[derive(BinRead, Debug, PartialEq)]
-#[br(big)]
-pub struct Point(pub [f32; 3]);
-
-impl Point {
-    pub fn x(&self) -> f32 {
-        self.0[0]
-    }
-
-    pub fn y(&self) -> f32 {
-        self.0[1]
-    }
-
-    pub fn z(&self) -> f32 {
-        self.0[2]
-    }
-}
-
-impl From<[f32; 3]> for Point {
-    fn from(arr: [f32; 3]) -> Point {
-        Point(arr)
     }
 }
 

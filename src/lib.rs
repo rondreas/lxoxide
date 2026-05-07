@@ -3,7 +3,6 @@ use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path as StdPath;
-use std::str::FromStr;
 
 pub mod animation;
 pub mod geometry;
@@ -13,6 +12,8 @@ pub mod meta;
 pub mod primitives;
 pub mod utils;
 
+pub use primitives::{ChunkHeader, ID4};
+
 use animation::{Action, Envelope};
 use geometry::layer::{
     DiscontinousVertexMap, Layer, Points, PolygonList, PolygonTagMapping, VertexMap,
@@ -21,71 +22,6 @@ use geometry::layer::{
 use item::Item;
 use media::Audio;
 use meta::{ChannelNames, ItemTags};
-
-#[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ID4([u8; 4]);
-
-impl ID4 {
-    pub const fn new(val: [u8; 4]) -> Self {
-        ID4(val)
-    }
-
-    pub fn from_bytes(b: [u8; 4]) -> Result<Self, ParseError> {
-        // FourCC should be 4 ascii printable bytes
-        if !b.iter().all(|&x| (0x20..=0x7E).contains(&x)) {
-            return Err(ParseError::InvalidID4);
-        }
-        Ok(ID4(b))
-    }
-
-    pub const fn to_bytes(self) -> [u8; 4] {
-        self.0
-    }
-
-    pub fn as_str(&self) -> &str {
-        std::str::from_utf8(&self.0).unwrap_or("UNKN")
-    }
-}
-
-impl PartialEq<&str> for ID4 {
-    fn eq(&self, other: &&str) -> bool {
-        other.len() == 4 && self.0 == other.as_bytes()
-    }
-}
-
-impl PartialEq<ID4> for &str {
-    fn eq(&self, other: &ID4) -> bool {
-        self.len() == 4 && other.0 == self.as_bytes()
-    }
-}
-
-impl From<ID4> for String {
-    fn from(id4: ID4) -> String {
-        String::from_utf8_lossy(&id4.0).to_string()
-    }
-}
-
-impl FromStr for ID4 {
-    type Err = ParseError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let b = s.as_bytes();
-        if b.len() != 4 {
-            return Err(ParseError::InvalidID4);
-        }
-        Ok(Self([b[0], b[1], b[2], b[3]]))
-    }
-}
-
-impl fmt::Display for ID4 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let b = self.to_bytes();
-        write!(
-            f,
-            "{}{}{}{}",
-            b[0] as char, b[1] as char, b[2] as char, b[3] as char
-        )
-    }
-}
 
 #[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[br(repr = u32)]
@@ -130,13 +66,6 @@ pub struct Header {
 
     #[br(big, map = Extension::from)]
     pub kind: Extension,
-}
-
-#[derive(BinRead, Debug)]
-#[br(big)]
-pub struct ChunkHeader {
-    pub kind: ID4,
-    pub size: u32,
 }
 
 // Enum for all chunks, storing unknown with information to more easy check hexdump

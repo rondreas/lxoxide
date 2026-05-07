@@ -1,4 +1,4 @@
-use crate::item::SubChunkHeader;
+use crate::primitives::SubChunkHeader;
 use binrw::{BinRead, BinResult};
 use std::io::{Read, Seek};
 

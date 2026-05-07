@@ -1,5 +1,4 @@
-use crate::ID4;
-use crate::geometry::layer::Point;
+use crate::primitives::{ID4, Point};
 use crate::utils::read_aligned_nullstring;
 use binrw::{BinRead, BinResult, Endian, NullString};
 use std::io::{Read, Seek};

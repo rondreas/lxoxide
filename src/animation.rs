@@ -1,5 +1,4 @@
-use crate::item::{ChannelValue, SubChunkHeader};
-use crate::primitives::VX;
+use crate::primitives::{ChannelValue, SubChunkHeader, VX};
 use crate::utils::read_aligned_nullstring;
 use binrw::{BinRead, BinResult, NullString};
 use std::collections::BTreeMap;

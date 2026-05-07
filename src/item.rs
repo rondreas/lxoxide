@@ -1,18 +1,10 @@
-use crate::ID4;
-use crate::primitives::VX;
+use crate::primitives::{ChannelValue, ID4, SubChunkHeader, VX};
 use crate::utils::read_aligned_nullstring;
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{
     BinRead, BinResult, Endian, NullString,
     io::{Read, Seek},
 };
-
-#[derive(BinRead, Debug)]
-#[br(big)]
-pub struct SubChunkHeader {
-    pub kind: ID4,
-    pub size: u16,
-}
 
 #[derive(BinRead, Debug, Clone, PartialEq)]
 #[br(big)]
@@ -140,46 +132,6 @@ pub struct ItemTag {
     pub kind: ID4,
     #[br(align_after = 2)]
     pub tag: NullString,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ChannelValue {
-    Integer(i32),
-    Float(f32),
-    String(NullString),
-}
-
-impl ReadEndian for ChannelValue {
-    const ENDIAN: EndianKind = EndianKind::Endian(Endian::Big);
-}
-
-impl BinRead for ChannelValue {
-    type Args<'a> = (u16,);
-
-    fn read_options<R: Read + Seek>(
-        reader: &mut R,
-        endian: binrw::Endian,
-        flag: Self::Args<'_>,
-    ) -> BinResult<Self> {
-        match flag.0 & !0x20 {
-            0x1 | 0x11 => Ok(ChannelValue::Integer(i32::read_options(
-                reader,
-                endian,
-                (),
-            )?)),
-            0x2 | 0x12 => Ok(ChannelValue::Float(f32::read_options(reader, endian, ())?)),
-            0x3 | 0x13 => Ok(ChannelValue::String(read_aligned_nullstring(reader)?)),
-            _ => {
-                let pos = reader.stream_position()?;
-                return Err(binrw::Error::Custom {
-                    pos,
-                    err: Box::new(std::io::Error::other(
-                        format!("Invalid ItemFlag {} at: {}", flag.0, pos),
-                    )),
-                });
-            }
-        }
-    }
 }
 
 #[derive(BinRead, Debug, Clone, PartialEq)]
