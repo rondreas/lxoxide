@@ -1,5 +1,5 @@
-use std::io::{Read, Seek};
 use binrw::{BinRead, NullString};
+use std::io::{Read, Seek};
 
 pub fn read_aligned_nullstring<R: Read + Seek>(reader: &mut R) -> Result<NullString, binrw::Error> {
     let s = NullString::read_be(reader)?;

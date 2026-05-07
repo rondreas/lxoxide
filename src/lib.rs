@@ -5,13 +5,13 @@ use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::path::Path as StdPath;
 use std::str::FromStr;
 
-pub mod utils;
 pub mod animation;
 pub mod geometry;
 pub mod item;
 pub mod media;
 pub mod meta;
 pub mod primitives;
+pub mod utils;
 
 use animation::{Action, Envelope};
 use geometry::layer::{

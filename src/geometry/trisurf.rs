@@ -1,7 +1,7 @@
-use binrw::{BinRead, NullString, Endian, BinResult};
 use crate::ID4;
 use crate::geometry::layer::Point;
 use crate::utils::read_aligned_nullstring;
+use binrw::{BinRead, BinResult, Endian, NullString};
 use std::io::{Read, Seek};
 
 #[derive(Debug, BinRead)]
@@ -22,18 +22,18 @@ pub struct TriSurfDataHeader {
 
 #[derive(Debug, BinRead)]
 #[br(big, import(count: u32))]
-pub struct TriSurfVertices( #[br(count = count)] pub Vec<Point>);
+pub struct TriSurfVertices(#[br(count = count)] pub Vec<Point>);
 
 #[derive(Debug, BinRead)]
 #[br(big, import(count: u32))]
-pub struct TriSurfTriangles( #[br(count = count)]pub Vec<[u32; 3]>);
+pub struct TriSurfTriangles(#[br(count = count)] pub Vec<[u32; 3]>);
 
 #[derive(Debug)]
 pub struct TriSurfVertexVectors {
     pub kind: ID4,
     pub dimensions: u32,
     pub name: NullString,
-    pub vectors: Vec<Vec<f32>>
+    pub vectors: Vec<Vec<f32>>,
 }
 
 impl BinRead for TriSurfVertexVectors {
@@ -42,7 +42,7 @@ impl BinRead for TriSurfVertexVectors {
     fn read_options<R: Read + Seek>(
         reader: &mut R,
         _endian: Endian,
-        size: Self::Args<'_>
+        size: Self::Args<'_>,
     ) -> BinResult<Self> {
         let start = reader.stream_position()?;
 
@@ -59,7 +59,12 @@ impl BinRead for TriSurfVertexVectors {
             vectors.push(v);
         }
 
-        Ok(TriSurfVertexVectors{kind, dimensions, name, vectors})
+        Ok(TriSurfVertexVectors {
+            kind,
+            dimensions,
+            name,
+            vectors,
+        })
     }
 }
 
@@ -72,7 +77,7 @@ impl BinRead for TriSurfTags {
     fn read_options<R: Read + Seek>(
         reader: &mut R,
         _endian: Endian,
-        size: Self::Args<'_>
+        size: Self::Args<'_>,
     ) -> BinResult<Self> {
         let mut tags = Vec::new();
 
@@ -87,4 +92,3 @@ impl BinRead for TriSurfTags {
         Ok(TriSurfTags(tags))
     }
 }
-

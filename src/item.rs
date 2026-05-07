@@ -29,7 +29,7 @@ pub struct Reference {
     #[br(align_after = 2)]
     pub path: NullString,
     #[br(align_after = 2)]
-    pub ident: NullString
+    pub ident: NullString,
 }
 
 #[derive(BinRead, Debug, Clone, PartialEq)]
@@ -67,18 +67,6 @@ pub struct Gradient {
     pub name: NullString,
     pub envelope_index: VX,
     pub flags: u32,
-}
-
-#[derive(BinRead, Debug, Clone, PartialEq)]
-pub struct UniqueIdentifier {
-    #[br(align_after = 2)]
-    pub identifier: NullString,
-}
-
-#[derive(BinRead, Debug, Clone, PartialEq)]
-#[br(big)]
-pub struct UniqueItemIndex {
-    pub index: u32,
 }
 
 #[derive(BinRead, Debug, Clone, PartialEq)]
@@ -154,12 +142,6 @@ pub struct ItemTag {
     pub tag: NullString,
 }
 
-#[derive(BinRead, Debug, Clone, PartialEq)]
-pub struct VisibleName {
-    #[br(align_after = 2)]
-    pub name: NullString,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChannelValue {
     Integer(i32),
@@ -206,29 +188,36 @@ pub struct ScalarChannel {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum SubChunks {
-    LAYR(Layer),
-    PAKG(Package),
+pub enum Channels {
     CHAN(Channel),
-    LINK(Link),
     GRAD(Gradient),
-    UNIQ(UniqueIdentifier),
-    UIDX(UniqueItemIndex),
-    BBOX(BoundingBox),
     CHNL(ScalarChannel),
     CHNV(VectorChannel),
     CHNS(StringChannel),
-    ITAG(ItemTag),
-    VNAM(VisibleName),
-    Unknown { kind: ID4, size: u16 },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub struct Item {
     pub kind: NullString,
     pub name: NullString,
     pub id: u32,
-    pub subchunks: Vec<SubChunks>,
+
+    pub reference: Option<Reference>,
+
+    pub layer: Option<Layer>,
+
+    pub links: Vec<Link>,
+
+    pub channels: Vec<Channels>,
+
+    pub tags: Vec<ItemTag>,
+
+    pub ident: Option<NullString>,
+    pub index: Option<u32>,
+
+    pub visible_name: Option<NullString>,
+
+    pub bounds: Option<BoundingBox>,
 }
 
 impl ReadEndian for Item {
@@ -240,85 +229,65 @@ impl BinRead for Item {
 
     fn read_options<R: Read + Seek>(
         reader: &mut R,
-        endian: binrw::Endian,
+        _endian: binrw::Endian,
         size: Self::Args<'_>,
     ) -> BinResult<Self> {
         let start = reader.stream_position()?;
         let kind = read_aligned_nullstring(reader)?;
         let name = read_aligned_nullstring(reader)?;
-        let id = u32::read_options(reader, endian, ())?;
+        let id = u32::read_be(reader)?;
 
-        let mut subchunks = Vec::new();
+        let mut reference = None;
+        let mut layer = None;
+        let mut links = vec![];
+        let mut channels = vec![];
+        let mut tags = vec![];
+        let mut ident = None;
+        let mut index = None;
+        let mut visible_name = None;
+        let mut bounds = None;
 
         while reader.stream_position()? - start < size as u64 {
             let header = SubChunkHeader::read_be(reader)?;
 
-            let subchunk = match header.kind.as_str() {
-                "LAYR" => {
-                    let chunk = Layer::read_options(reader, endian, ())?;
-                    SubChunks::LAYR(chunk)
-                }
-                "LINK" => {
-                    let chunk = Link::read_options(reader, endian, ())?;
-                    SubChunks::LINK(chunk)
-                }
-                "GRAD" => {
-                    let chunk = Gradient::read_options(reader, endian, ())?;
-                    SubChunks::GRAD(chunk)
-                }
-                "UNIQ" => {
-                    let chunk = UniqueIdentifier::read_options(reader, endian, ())?;
-                    SubChunks::UNIQ(chunk)
-                }
-                "UIDX" => {
-                    let chunk = UniqueItemIndex::read_options(reader, endian, ())?;
-                    SubChunks::UIDX(chunk)
-                }
-                "BBOX" => {
-                    let chunk = BoundingBox::read_options(reader, endian, ())?;
-                    SubChunks::BBOX(chunk)
-                }
-                "CHNL" => {
-                    let chunk = ScalarChannel::read_options(reader, endian, ())?;
-                    SubChunks::CHNL(chunk)
-                }
-                "CHNV" => {
-                    let chunk = VectorChannel::read_options(reader, endian, ())?;
-                    SubChunks::CHNV(chunk)
-                }
-                "CHNS" => {
-                    let chunk = StringChannel::read_options(reader, endian, ())?;
-                    SubChunks::CHNS(chunk)
-                }
-                "ITAG" => {
-                    let chunk = ItemTag::read_options(reader, endian, ())?;
-                    SubChunks::ITAG(chunk)
-                }
-                "VNAM" => {
-                    let chunk = VisibleName::read_options(reader, endian, ())?;
-                    SubChunks::VNAM(chunk)
-                }
-                "CHAN" => {
-                    let chunk = Channel::read_options(reader, endian, ())?;
-                    SubChunks::CHAN(chunk)
-                }
+            match header.kind.as_str() {
+                "XREF" => reference = Some(Reference::read_be(reader)?),
+                "LAYR" => layer = Some(Layer::read_be(reader)?),
+                "LINK" => links.push(Link::read(reader)?),
+                "GRAD" => channels.push(Channels::GRAD(Gradient::read_be(reader)?)),
+                "CHNL" => channels.push(Channels::CHNL(ScalarChannel::read_be(reader)?)),
+                "CHNV" => channels.push(Channels::CHNV(VectorChannel::read_be(reader)?)),
+                "CHNS" => channels.push(Channels::CHNS(StringChannel::read_be(reader)?)),
+                "CHAN" => channels.push(Channels::CHAN(Channel::read_be(reader)?)),
+                "ITAG" => tags.push(ItemTag::read_be(reader)?),
+                "UNIQ" => ident = Some(read_aligned_nullstring(reader)?),
+                "UIDX" => index = Some(u32::read_be(reader)?),
+                "VNAM" => visible_name = Some(read_aligned_nullstring(reader)?),
+                "BBOX" => bounds = Some(BoundingBox::read_be(reader)?),
                 _ => {
+                    let pos = reader.stream_position()?;
+                    eprintln!(
+                        "Unknown item subchunk {} at {} size: {}",
+                        header.kind, pos, header.size,
+                    );
                     reader.seek_relative(header.size as i64)?;
-                    SubChunks::Unknown {
-                        kind: header.kind,
-                        size: header.size,
-                    }
                 }
-            };
-
-            subchunks.push(subchunk);
+            }
         }
 
         Ok(Item {
             kind,
             name,
             id,
-            subchunks,
+            reference,
+            layer,
+            links,
+            channels,
+            tags,
+            ident,
+            index,
+            visible_name,
+            bounds,
         })
     }
 }
@@ -438,27 +407,8 @@ mod tests {
         assert_eq!(item.kind, "mesh".into());
         assert!(item.name.is_empty());
         assert_eq!(item.id, 0);
-        assert!(!item.subchunks.is_empty());
-        assert!(reader.stream_position().unwrap() == reader.get_ref().len() as u64);
-    }
 
-    #[test]
-    fn test_unique_identifier() {
-        let mut reader = Cursor::new([0x6d, 0x65, 0x73, 0x68, 0x30, 0x30, 0x32, 0x00]);
-        assert_eq!(
-            UniqueIdentifier::read_be(&mut reader).unwrap().identifier,
-            "mesh002".into()
-        );
-        assert!(reader.stream_position().unwrap() == reader.get_ref().len() as u64);
-
-        let mut reader = Cursor::new([
-            0x6c, 0x69, 0x67, 0x68, 0x74, 0x4d, 0x61, 0x74, 0x65, 0x72, 0x69, 0x61, 0x6c, 0x30,
-            0x32, 0x32, 0x00, 0x00,
-        ]);
-        assert_eq!(
-            UniqueIdentifier::read_be(&mut reader).unwrap().identifier,
-            "lightMaterial022".into()
-        );
+        // assert we read all data
         assert!(reader.stream_position().unwrap() == reader.get_ref().len() as u64);
     }
 }
