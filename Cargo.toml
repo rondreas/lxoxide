@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 bitflags = "2.11.1"
 binrw = "0.15.1"
+thiserror = "2.0.18"
 
 [[example]]
 name = "dump"

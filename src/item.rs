@@ -171,7 +171,12 @@ impl BinRead for ChannelValue {
             0x3 | 0x13 => Ok(ChannelValue::String(read_aligned_nullstring(reader)?)),
             _ => {
                 let pos = reader.stream_position()?;
-                panic!("Invalid ItemFlag {} at: {}", flag.0, pos)
+                return Err(binrw::Error::Custom {
+                    pos,
+                    err: Box::new(std::io::Error::other(
+                        format!("Invalid ItemFlag {} at: {}", flag.0, pos),
+                    )),
+                });
             }
         }
     }

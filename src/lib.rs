@@ -1,7 +1,7 @@
 use binrw::{BinRead, BinReaderExt, NullString};
 use std::fmt;
 use std::fs::File;
-use std::io::{self, BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path as StdPath;
 use std::str::FromStr;
 
@@ -161,92 +161,40 @@ pub enum Chunk {
     Unknown { kind: ID4, position: u64, size: u32 },
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ParseError {
+    #[error("IFF files must start with FORM")]
     InvalidMagicNumber,
+
+    #[error("ID4 must be 4 printable ASCII characters")]
     InvalidID4,
+
+    #[error("File size does not match reported size in header")]
     SizeMismatch,
+
+    #[error("Invalid size for fixed size chunk data")]
     InvalidSize,
+
+    #[error("File type not supported")]
     NonSupportedExtension,
+
+    #[error("Buffer is too short for the data to be parsed")]
     BufferTooShort,
+
+    #[error("Strings must be null terminated")]
     MissingNullTerminator,
+
+    #[error("Bytes must be aligned to even number")]
     UnalignedBytes,
+
+    #[error("Non supported Channel Vector data type")]
     ChannelVectorArray,
-    IoError(io::Error),
-}
 
-impl PartialEq for ParseError {
-    fn eq(&self, other: &Self) -> bool {
-        matches!(
-            (self, other),
-            (
-                ParseError::InvalidMagicNumber,
-                ParseError::InvalidMagicNumber
-            ) | (ParseError::InvalidID4, ParseError::InvalidID4)
-                | (ParseError::SizeMismatch, ParseError::SizeMismatch)
-                | (ParseError::InvalidSize, ParseError::InvalidSize)
-                | (
-                    ParseError::NonSupportedExtension,
-                    ParseError::NonSupportedExtension
-                )
-                | (ParseError::BufferTooShort, ParseError::BufferTooShort)
-                | (
-                    ParseError::MissingNullTerminator,
-                    ParseError::MissingNullTerminator
-                )
-                | (ParseError::UnalignedBytes, ParseError::UnalignedBytes)
-                | (
-                    ParseError::ChannelVectorArray,
-                    ParseError::ChannelVectorArray
-                )
-                | (ParseError::IoError(_), ParseError::IoError(_))
-        )
-    }
-}
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
 
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ParseError::InvalidMagicNumber => write!(f, "IFF files must start with FORM"),
-            ParseError::InvalidID4 => write!(f, "ID4 must be 4 printable ASCII characters"),
-            ParseError::SizeMismatch => {
-                write!(f, "File size does not match reported size in header")
-            }
-            ParseError::InvalidSize => write!(f, "Invalid size for fixed size chunk data"),
-            ParseError::NonSupportedExtension => write!(f, "File type not supported"),
-            ParseError::BufferTooShort => {
-                write!(f, "Buffer is too short for the data to be parsed")
-            }
-            ParseError::MissingNullTerminator => write!(f, "Strings must be null terminated"),
-            ParseError::UnalignedBytes => write!(f, "Bytes must be aligned to even number"),
-            ParseError::ChannelVectorArray => write!(f, "Non supported Channel Vector data type"),
-            ParseError::IoError(e) => write!(f, "IO error: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for ParseError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            ParseError::IoError(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl From<std::io::Error> for ParseError {
-    fn from(e: std::io::Error) -> Self {
-        ParseError::IoError(io::Error::other(e.to_string()))
-    }
-}
-
-impl From<binrw::Error> for ParseError {
-    fn from(e: binrw::Error) -> Self {
-        match e {
-            binrw::Error::Io(io_err) => ParseError::IoError(io_err),
-            _ => ParseError::IoError(io::Error::other(e.to_string())),
-        }
-    }
+    #[error(transparent)]
+    BinRead(#[from] binrw::Error),
 }
 
 pub struct LuxologyFile {
@@ -260,7 +208,7 @@ impl LuxologyFile {
     }
 
     pub fn from_path<P: AsRef<StdPath>>(path: P) -> Result<LuxologyFile, ParseError> {
-        let file = File::open(path).map_err(ParseError::IoError)?;
+        let file = File::open(path)?;
         let meta = file.metadata()?;
         let mut reader = BufReader::new(file);
 
