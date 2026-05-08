@@ -365,6 +365,16 @@ mod tests {
         assert!(item.name.is_empty());
         assert_eq!(item.id, 0);
 
+        assert!(item.reference.is_none());
+        assert_eq!(item.layer, Some(Layer{index: 0, flags: 5, color: [200, 200, 200, 255]}));
+        assert!(item.links.is_empty());
+        assert_eq!(item.channels.len(), 30);
+        assert!(item.tags.is_empty());
+        assert_eq!(item.ident, Some("mesh002".into()));
+        assert_eq!(item.index, Some(1));
+        assert_eq!(item.visible_name, Some("Mesh".into()));
+        assert_eq!(item.bounds, Some(BoundingBox{min: [-0.5, -0.5, -0.5], max: [0.5, 0.5, 0.5]}));
+
         // assert we read all data
         assert!(reader.stream_position().unwrap() == reader.get_ref().len() as u64);
     }
