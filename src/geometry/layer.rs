@@ -102,8 +102,8 @@ impl BinRead for VertexMap {
         while reader.stream_position()? - start < size as u64 {
             let index = VX::read_be(reader)?;
             let mut values: Vec<f32> = vec![0.0; dimension as usize];
-            for i in 0..dimension as usize {
-                values[i] = f32::read_be(reader)?;
+            for value in values.iter_mut() {
+                *value = f32::read_be(reader)?;
             }
 
             data.push((index, values));
@@ -144,8 +144,8 @@ impl BinRead for DiscontinousVertexMap {
             let vertex_index = VX::read_be(reader)?;
             let polygon_index = VX::read_be(reader)?;
             let mut values: Vec<f32> = vec![0.0; dimension as usize];
-            for i in 0..dimension as usize {
-                values[i] = f32::read_be(reader)?;
+            for value in values.iter_mut() {
+                *value = f32::read_be(reader)?;
             }
 
             data.push((vertex_index, polygon_index, values));
@@ -179,15 +179,15 @@ impl BinRead for Polygon {
             // Bits 15-12: additional high count bits (extends to 14-bit max)
             // Bits 11-10: continuity toggle flags — 0 means handle IS present
             // Bits  9- 0: base vertex count
-            let high  = ((raw >> 12) & 0x000F) as u16;
+            let high  = (raw >> 12) & 0x000F;
             let low   = raw & 0x03FF;
             let base  = (high << 10) | low;
 
             // Each flag bit that is 0 means one continuity handle vertex is
             // stored in the VX list and must be read (0, 1, or 2 extra).
             let flags = (raw >> 10) & 0b11;
-            let extra = (!flags & 0b01) as u16  // bit 10 clear → start handle present
-                      + ((!flags >> 1) & 0b01) as u16; // bit 11 clear → end handle present
+            let extra = (!flags & 0b01)         // bit 10 clear → start handle present
+                      + ((!flags >> 1) & 0b01); // bit 11 clear → end handle present
 
             base + extra
         } else {
