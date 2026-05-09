@@ -229,7 +229,7 @@ impl BinRead for Action {
                         .push(ActionChannels::CHNN(channel));
                 }
                 "GRAD" => {
-                    let channel = ActionGradient::read_be(reader)?;
+                    let channel = ActionGradient::read_be_args(reader, header.size)?;
                     items
                         .entry(current_item)
                         .or_default()
@@ -320,12 +320,29 @@ mod tests {
     }
 
     #[test]
-    fn test_parsing_action_gradient_channel() {
+    fn test_parsing_action_gradient_channel_no_name() {
         let mut reader = Cursor::new([0x01, 0x56, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00]);
         let channel = ActionGradient::read_be(&mut reader).unwrap();
         assert_eq!(channel.channel_index, VX::U2(342));
         assert_eq!(channel.envelope_index, VX::U2(8));
         assert_eq!(channel.flags, 0);
         assert_eq!(channel.name, None);
+        assert_eq!(reader.stream_position().unwrap(), 8);
+    }
+
+    #[test]
+    fn test_parsing_action_gradient_channel_name() {
+        let mut reader = Cursor::new([
+            0x47, 0x52, 0x41, 0x44, 0x00, 0x16, 0x00, 0x00, 0x00, 0x3a, 0x00, 0x00,
+            0x00, 0x00, 0x4d, 0x79, 0x47, 0x72, 0x61, 0x64, 0x69, 0x65, 0x6e, 0x74,
+            0x2e, 0x42, 0x00, 0x00
+        ]);
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let channel = ActionGradient::read_be_args(&mut reader, header.size).unwrap();
+        assert_eq!(channel.channel_index, VX::U2(0));
+        assert_eq!(channel.envelope_index, VX::U2(58));
+        assert_eq!(channel.flags, 0);
+        assert_eq!(channel.name, Some("MyGradient.B".into()));
+        assert_eq!(reader.stream_position().unwrap(), 28);
     }
 }
