@@ -161,6 +161,8 @@ pub struct Item {
 
     pub reference: Option<Reference>,
 
+    pub package: Option<Package>,
+
     pub layer: Option<Layer>,
 
     pub links: Vec<Link>,
@@ -196,6 +198,7 @@ impl BinRead for Item {
 
         let mut reference = None;
         let mut layer = None;
+        let mut package = None;
         let mut links = vec![];
         let mut channels = vec![];
         let mut tags = vec![];
@@ -210,6 +213,7 @@ impl BinRead for Item {
             match header.kind.as_str() {
                 "XREF" => reference = Some(Reference::read_be(reader)?),
                 "LAYR" => layer = Some(Layer::read_be(reader)?),
+                "PAKG" => package = Some(Package::read_be(reader)?),
                 "LINK" => links.push(Link::read(reader)?),
                 "GRAD" => channels.push(Channels::GRAD(Gradient::read_be(reader)?)),
                 "CHNL" => channels.push(Channels::CHNL(ScalarChannel::read_be(reader)?)),
@@ -238,6 +242,7 @@ impl BinRead for Item {
             id,
             reference,
             layer,
+            package,
             links,
             channels,
             tags,
