@@ -111,9 +111,6 @@ pub struct Action {
     //
     pub parent: Option<u32>,
     pub items: BTreeMap<u32, Vec<ActionChannels>>,
-
-    // container for unknown chunks... so we don't loose data in roundtrips.
-    pub unknowns: Vec<(SubChunkHeader, Vec<u8>)>,
 }
 
 #[derive(BinRead, Debug)]
@@ -207,8 +204,6 @@ impl BinRead for Action {
         let mut items: BTreeMap<u32, Vec<ActionChannels>> = BTreeMap::new();
         let mut current_item = 0;
 
-        let mut unknowns: Vec<(SubChunkHeader, Vec<u8>)> = Vec::new();
-
         while reader.stream_position()? - start < size as u64 {
             let header = SubChunkHeader::read_be(reader)?;
             match header.kind.as_str() {
@@ -249,15 +244,13 @@ impl BinRead for Action {
                 }
                 _ => {
                     let pos = reader.stream_position()?;
-                    let mut unknown: Vec<u8> = vec![0u8; header.size as usize];
-                    reader.read_exact(&mut unknown)?;
+                    reader.seek_relative(header.size as i64)?;
                     eprintln!(
                         "Unknown Action subchunk {} at {} size {}",
                         header.kind.as_str(),
                         pos - 6,
                         header.size
                     );
-                    unknowns.push((header, unknown));
                 }
             }
         }
@@ -268,7 +261,6 @@ impl BinRead for Action {
             reference,
             parent,
             items,
-            unknowns,
         })
     }
 }
