@@ -160,12 +160,46 @@ impl BinRead for DiscontinousVertexMap {
     }
 }
 
-#[derive(BinRead, Debug)]
-#[br(big)]
+#[derive(Debug)]
 pub struct Polygon {
     pub vertex_count: u16,
-    #[br( count = vertex_count )]
     pub vertex_index: Vec<VX>,
+}
+
+impl BinRead for Polygon {
+    type Args<'a> = ID4;
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        _endian: Endian,
+        kind: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let raw = u16::read_be(reader)?;
+        let vertex_count = if kind == "CURV" || kind == "BCRV" {
+            // Bits 15-12: additional high count bits (extends to 14-bit max)
+            // Bits 11-10: continuity toggle flags — 0 means handle IS present
+            // Bits  9- 0: base vertex count
+            let high  = ((raw >> 12) & 0x000F) as u16;
+            let low   = raw & 0x03FF;
+            let base  = (high << 10) | low;
+
+            // Each flag bit that is 0 means one continuity handle vertex is
+            // stored in the VX list and must be read (0, 1, or 2 extra).
+            let flags = (raw >> 10) & 0b11;
+            let extra = (!flags & 0b01) as u16  // bit 10 clear → start handle present
+                      + ((!flags >> 1) & 0b01) as u16; // bit 11 clear → end handle present
+
+            base + extra
+        } else {
+            // Standard polygons: top 6 bits are flags, bottom 10 are count.
+            raw & 0x03FF
+        };
+        let mut vertex_index = Vec::with_capacity(vertex_count as usize);
+        for _ in 0..vertex_count {
+            vertex_index.push(VX::read_be(reader)?);
+        }
+        Ok(Polygon{vertex_count, vertex_index})
+    }
 }
 
 #[derive(Debug)]
@@ -190,7 +224,7 @@ impl BinRead for PolygonList {
         let kind = ID4::read_be(reader)?;
         let mut polygons = vec![];
         while reader.stream_position()? - start < size as u64 {
-            polygons.push(Polygon::read_be(reader)?);
+            polygons.push(Polygon::read_be_args(reader, kind)?);
         }
         Ok(PolygonList { kind, polygons })
     }
@@ -387,5 +421,33 @@ mod tests {
 
         assert_eq!(ptags.tags.len(), 6);
         assert!(ptags.tags.iter().all(|(_, v)| *v == 1));
+    }
+
+    #[test]
+    fn bezier_curve_polygons() {
+        let mut reader = Cursor::new([
+            0x50, 0x4f, 0x4c, 0x53, 0x00, 0x00, 0x00, 0x66, 0x42, 0x43, 0x52, 0x56,
+            0x00, 0x2e, 0x00, 0x00, 0x1a, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02,
+            0x00, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00, 0x08,
+            0x00, 0x09, 0x00, 0x0a, 0x00, 0x0b, 0x00, 0x0c, 0x00, 0x0d, 0x00, 0x0e,
+            0x00, 0x0f, 0x00, 0x10, 0x00, 0x11, 0x00, 0x12, 0x00, 0x13, 0x00, 0x14,
+            0x00, 0x15, 0x00, 0x16, 0x00, 0x17, 0x00, 0x18, 0x00, 0x19, 0x00, 0x1a,
+            0x00, 0x1b, 0x00, 0x1c, 0x00, 0x1d, 0x00, 0x1e, 0x00, 0x1f, 0x00, 0x20,
+            0x00, 0x21, 0x00, 0x22, 0x00, 0x23, 0x00, 0x24, 0x00, 0x25, 0x00, 0x26,
+            0x00, 0x27, 0x00, 0x28, 0x00, 0x29, 0x00, 0x2a, 0x00, 0x2b, 0x00, 0x2c,
+            0x00, 0x2d
+        ]);
+
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        let pols = PolygonList::read_args(&mut reader, header.size).unwrap();
+
+        assert_eq!(pols.kind, "BCRV");
+        assert_eq!(pols.polygons.len(), 1);
+        assert_eq!(pols.polygons[0].vertex_count, 48);
+        assert_eq!(
+            reader.stream_position().unwrap(),
+            (header.size + 8).into(),
+            "Failed to read the whole chunk"
+        );
     }
 }
