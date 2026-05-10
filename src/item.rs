@@ -161,6 +161,33 @@ pub enum Channels {
     BCHN(BlockChannel),
 }
 
+pub struct DataBlock {
+    pub index: u32,
+    pub flag: u32,
+    pub name: NullString,
+    pub data: Vec<u8>
+}
+
+impl BinRead for DataBlock {
+    type Args<'a> = u32;
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        _endian: binrw::Endian,
+        size: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let start = reader.stream_position()? as u32;
+        let index = u32::read_be(reader)?;
+        let flag = u32::read_be(reader)?;
+        let name = read_aligned_nullstring(reader)?;
+        let pos = reader.stream_position()? as u32;
+        let mut data: Vec<u8> = vec![0u8; (size - (pos-start)) as usize];
+        reader.read_exact(&mut data)?;
+
+        Ok(DataBlock{index, flag, name, data})
+    }
+}
+
 #[derive(BinRead, Debug)]
 #[br(big)]
 pub struct ChannelLink {
@@ -322,6 +349,7 @@ impl BinRead for Item {
 mod tests {
     use super::*;
     use std::io::Cursor;
+    use crate::ChunkHeader;
 
     #[test]
     fn test_vector_channel() {
@@ -579,6 +607,34 @@ mod tests {
         assert_eq!(item.bounds, Some(BoundingBox{min: [-0.5, -0.5, -0.5], max: [0.5, 0.5, 0.5]}));
 
         // assert we read all data
+        assert!(reader.stream_position().unwrap() == reader.get_ref().len() as u64);
+    }
+
+    #[test]
+    fn data_block() {
+        // These are related to user channels, and block channels
+        let mut reader = Cursor::new([
+            0x44, 0x41, 0x54, 0x41, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x2b, 0x70, 0x61, 0x74, 0x74, 0x65, 0x72, 0x6e,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+            0x44, 0x41, 0x54, 0x41, 0x00, 0x00, 0x00, 0x1a, 0x00, 0x00, 0x00, 0x01,
+            0x00, 0x00, 0x00, 0x00, 0x2b, 0x69, 0x6e, 0x74, 0x72, 0x61, 0x6e, 0x67,
+            0x65, 0x00, 0x33, 0x2c, 0x37, 0x2c, 0x32, 0x2c, 0x31, 0x00
+        ]);
+
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        let data = DataBlock::read_be_args(&mut reader, header.size).unwrap();
+        assert_eq!(data.index, 0);
+        assert_eq!(data.flag, 0);
+        assert_eq!(data.name, "+pattern".into());
+
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        let data = DataBlock::read_be_args(&mut reader, header.size).unwrap();
+        assert_eq!(data.index, 1);
+        assert_eq!(data.flag, 0);
+        assert_eq!(data.name, "+intrange".into());
+
         assert!(reader.stream_position().unwrap() == reader.get_ref().len() as u64);
     }
 }
