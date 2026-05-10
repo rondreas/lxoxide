@@ -153,6 +153,20 @@ pub enum Channels {
     CHNS(StringChannel),
 }
 
+#[derive(BinRead, Debug)]
+#[br(big)]
+pub struct ChannelLink {
+    #[br(align_after = 2)]
+    pub graph: NullString,
+    #[br(align_after = 2)]
+    pub from: NullString,
+    pub item: u32,
+    #[br(align_after = 2)]
+    pub to: NullString,
+    pub from_index: u32,
+    pub to_index: u32,
+}
+
 #[derive(BinRead, Debug, PartialEq, Eq)]
 #[br(repr=u32, big)]
 pub enum VectorMode {
@@ -198,6 +212,7 @@ pub struct Item {
     pub layer: Option<Layer>,
 
     pub user_channels: Vec<UserChannel>,
+    pub channel_links: Vec<ChannelLink>,
 
     pub links: Vec<Link>,
 
@@ -234,6 +249,7 @@ impl BinRead for Item {
         let mut layer = None;
         let mut package = None;
         let mut user_channels = vec![];
+        let mut channel_links = vec![];
         let mut links = vec![];
         let mut channels = vec![];
         let mut tags = vec![];
@@ -250,6 +266,7 @@ impl BinRead for Item {
                 "LAYR" => layer = Some(Layer::read_be(reader)?),
                 "PAKG" => package = Some(Package::read_be(reader)?),
                 "UCHN" => user_channels.push(UserChannel::read_be(reader)?),
+                "CLNK" => channel_links.push(ChannelLink::read_be(reader)?),
                 "LINK" => links.push(Link::read(reader)?),
                 "GRAD" => channels.push(Channels::GRAD(Gradient::read_be(reader)?)),
                 "CHNL" => channels.push(Channels::CHNL(ScalarChannel::read_be(reader)?)),
@@ -280,6 +297,7 @@ impl BinRead for Item {
             layer,
             package,
             user_channels,
+            channel_links,
             links,
             channels,
             tags,
