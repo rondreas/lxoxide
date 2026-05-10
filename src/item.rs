@@ -153,6 +153,38 @@ pub enum Channels {
     CHNS(StringChannel),
 }
 
+#[derive(BinRead, Debug, PartialEq, Eq)]
+#[br(repr=u32, big)]
+pub enum VectorMode {
+    Scalar,
+    XY,
+    XYZ,
+    RGB,
+    RGBA
+}
+
+#[derive(BinRead, Debug, PartialEq)]
+pub struct TextHint {
+    #[br(align_after = 2)]
+    pub name: NullString,
+    pub value: i32,
+}
+
+#[derive(BinRead, Debug)]
+pub struct UserChannel {
+    #[br(align_after = 2)]
+    pub name: NullString,
+    #[br(align_after = 2)]
+    pub kind: NullString,
+    pub mode: VectorMode,
+    pub flag: u32,
+    pub default_int: i32,
+    pub default_float: f32,
+    pub num_hints: u16,
+    #[br(count=num_hints)]
+    pub hints: Vec<TextHint>
+}
+
 #[derive(Debug)]
 pub struct Item {
     pub kind: NullString,
@@ -164,6 +196,8 @@ pub struct Item {
     pub package: Option<Package>,
 
     pub layer: Option<Layer>,
+
+    pub user_channels: Vec<UserChannel>,
 
     pub links: Vec<Link>,
 
@@ -199,6 +233,7 @@ impl BinRead for Item {
         let mut reference = None;
         let mut layer = None;
         let mut package = None;
+        let mut user_channels = vec![];
         let mut links = vec![];
         let mut channels = vec![];
         let mut tags = vec![];
@@ -214,6 +249,7 @@ impl BinRead for Item {
                 "XREF" => reference = Some(Reference::read_be(reader)?),
                 "LAYR" => layer = Some(Layer::read_be(reader)?),
                 "PAKG" => package = Some(Package::read_be(reader)?),
+                "UCHN" => user_channels.push(UserChannel::read_be(reader)?),
                 "LINK" => links.push(Link::read(reader)?),
                 "GRAD" => channels.push(Channels::GRAD(Gradient::read_be(reader)?)),
                 "CHNL" => channels.push(Channels::CHNL(ScalarChannel::read_be(reader)?)),
@@ -229,7 +265,7 @@ impl BinRead for Item {
                     let pos = reader.stream_position()?;
                     eprintln!(
                         "Unknown item subchunk {} at {} size: {}",
-                        header.kind, pos, header.size,
+                        header.kind, pos - 6, header.size + 6,
                     );
                     reader.seek_relative(header.size as i64)?;
                 }
@@ -243,6 +279,7 @@ impl BinRead for Item {
             reference,
             layer,
             package,
+            user_channels,
             links,
             channels,
             tags,
@@ -316,6 +353,140 @@ mod tests {
 
         assert_eq!(chan.index, VX::U2(224));
         assert_eq!(chan.value, ChannelValue::Integer(1));
+    }
+
+    #[test]
+    fn matrix_user_channel() {
+        let mut reader = Cursor::new([
+            0x55, 0x43, 0x48, 0x4e, 0x00, 0x34, 0x4d, 0x79, 0x4d, 0x61, 0x74, 0x72,
+            0x69, 0x78, 0x00, 0x00, 0x6d, 0x61, 0x74, 0x72, 0x69, 0x78, 0x34, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x23, 0x4d, 0x79, 0x20, 0x4d, 0x61,
+            0x74, 0x72, 0x69, 0x78, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        ]);
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        assert_eq!(header.kind, "UCHN");
+        assert_eq!(header.size, 52);
+
+        let user_channel = UserChannel::read_be(&mut reader).unwrap();
+        assert_eq!(user_channel.name, "MyMatrix".into());
+        assert_eq!(user_channel.kind, "matrix4".into());
+
+        assert_eq!(reader.stream_position().unwrap(), 58);
+    }
+
+    #[test]
+    fn pattern_user_channel() {
+        let mut reader = Cursor::new([
+            0x55, 0x43, 0x48, 0x4e, 0x00, 0x36, 0x4d, 0x79, 0x50, 0x61, 0x74, 0x74,
+            0x65, 0x72, 0x6e, 0x00, 0x2b, 0x70, 0x61, 0x74, 0x74, 0x65, 0x72, 0x6e,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x23, 0x4d, 0x79, 0x20,
+            0x50, 0x61, 0x74, 0x74, 0x65, 0x72, 0x6e, 0x00, 0x00, 0x00, 0x00, 0x00
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        assert_eq!(header.kind, "UCHN");
+        assert_eq!(header.size, 54);
+
+        let user_channel = UserChannel::read_be(&mut reader).unwrap();
+        assert_eq!(user_channel.name, "MyPattern".into());
+        assert_eq!(user_channel.kind, "+pattern".into());
+
+        assert_eq!(reader.stream_position().unwrap(), 60);
+    }
+
+    #[test]
+    fn int_range_user_channel() {
+        let mut reader = Cursor::new([
+            0x55, 0x43, 0x48, 0x4e, 0x00, 0x36, 0x4d, 0x79, 0x4e, 0x75, 0x6d, 0x62,
+            0x65, 0x72, 0x73, 0x00, 0x2b, 0x69, 0x6e, 0x74, 0x72, 0x61, 0x6e, 0x67,
+            0x65, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x23, 0x4d, 0x79, 0x20,
+            0x4e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x73, 0x00, 0x00, 0x00, 0x00, 0x00
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        assert_eq!(header.kind, "UCHN");
+        assert_eq!(header.size, 54);
+
+        let user_channel = UserChannel::read_be(&mut reader).unwrap();
+        assert_eq!(user_channel.name, "MyNumbers".into());
+        assert_eq!(user_channel.kind, "+intrange".into());
+
+        assert_eq!(reader.stream_position().unwrap(), 60);
+    }
+
+    #[test]
+    fn gradient_user_channel() {
+        let mut reader = Cursor::new([
+            0x55, 0x43, 0x48, 0x4e, 0x00, 0x38, 0x4d, 0x79, 0x47, 0x72, 0x61, 0x64,
+            0x69, 0x65, 0x6e, 0x74, 0x00, 0x00, 0x63, 0x6f, 0x6c, 0x6f, 0x72, 0x31,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x23, 0x4d, 0x79, 0x20,
+            0x47, 0x72, 0x61, 0x64, 0x69, 0x65, 0x6e, 0x74, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        assert_eq!(header.kind, "UCHN");
+        assert_eq!(header.size, 56);
+
+        let user_channel = UserChannel::read_be(&mut reader).unwrap();
+        assert_eq!(user_channel.name, "MyGradient".into());
+        assert_eq!(user_channel.kind, "color1".into());
+
+        assert_eq!(reader.stream_position().unwrap(), 62);
+    }
+
+    #[test]
+    fn quaternion_user_channel() {
+        let mut reader = Cursor::new([
+            0x55, 0x43, 0x48, 0x4e, 0x00, 0x40, 0x4d, 0x79, 0x51, 0x75, 0x61, 0x74,
+            0x65, 0x72, 0x6e, 0x69, 0x6f, 0x6e, 0x00, 0x00, 0x71, 0x75, 0x61, 0x74,
+            0x65, 0x72, 0x6e, 0x69, 0x6f, 0x6e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x01, 0x23, 0x4d, 0x79, 0x20, 0x51, 0x75, 0x61, 0x74, 0x65, 0x72,
+            0x6e, 0x69, 0x6f, 0x6e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        assert_eq!(header.kind, "UCHN");
+        assert_eq!(header.size, 64);
+
+        let user_channel = UserChannel::read_be(&mut reader).unwrap();
+        assert_eq!(user_channel.name, "MyQuaternion".into());
+        assert_eq!(user_channel.kind, "quaternion".into());
+
+        assert_eq!(reader.stream_position().unwrap(), 70);
+    }
+
+    #[test]
+    fn float_user_channel() {
+        let mut reader = Cursor::new([
+            0x55, 0x43, 0x48, 0x4e, 0x00, 0x38, 0x4d, 0x79, 0x53, 0x69, 0x7a, 0x65,
+            0x00, 0x00, 0x66, 0x6c, 0x6f, 0x61, 0x74, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00,
+            0x00, 0x02, 0x25, 0x6d, 0x69, 0x6e, 0x00, 0x00, 0x00, 0x00, 0x03, 0xe8,
+            0x23, 0x4d, 0x79, 0x20, 0x53, 0x69, 0x7a, 0x65, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        assert_eq!(header.kind, "UCHN");
+        assert_eq!(header.size, 56);
+
+        let user_channel = UserChannel::read_be(&mut reader).unwrap();
+        assert_eq!(user_channel.name, "MySize".into());
+        assert_eq!(user_channel.kind, "float".into());
+        assert_eq!(user_channel.mode, VectorMode::Scalar);
+        assert_eq!(user_channel.flag, 0);
+
+        assert_eq!(user_channel.hints.len(), 2);
+        assert!(user_channel.hints.contains(&TextHint{name: "#My Size".into(), value: 0}));
+        assert!(user_channel.hints.contains(&TextHint{name: "%min".into(), value: 1000}));
+
+        assert_eq!(reader.stream_position().unwrap(), 62);
     }
 
     #[test]
