@@ -144,6 +144,13 @@ pub struct ScalarChannel {
     pub value: ChannelValue,
 }
 
+#[derive(BinRead, Debug, Clone, PartialEq)]
+pub struct BlockChannel {
+    #[br(align_after = 2)]
+    pub name: NullString,
+    pub index: u32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Channels {
     CHAN(Channel),
@@ -151,6 +158,7 @@ pub enum Channels {
     CHNL(ScalarChannel),
     CHNV(VectorChannel),
     CHNS(StringChannel),
+    BCHN(BlockChannel),
 }
 
 #[derive(BinRead, Debug)]
@@ -273,6 +281,7 @@ impl BinRead for Item {
                 "CHNV" => channels.push(Channels::CHNV(VectorChannel::read_be(reader)?)),
                 "CHNS" => channels.push(Channels::CHNS(StringChannel::read_be(reader)?)),
                 "CHAN" => channels.push(Channels::CHAN(Channel::read_be(reader)?)),
+                "BCHN" => channels.push(Channels::BCHN(BlockChannel::read_be(reader)?)),
                 "ITAG" => tags.push(ItemTag::read_be(reader)?),
                 "UNIQ" => ident = Some(read_aligned_nullstring(reader)?),
                 "UIDX" => index = Some(u32::read_be(reader)?),
