@@ -168,7 +168,7 @@ impl LuxologyFile {
         let mut audio = None;
 
         loop {
-            let chunk_start_position = reader.stream_position()?;
+            let chunk_start_position = reader.stream_position()? as i64;
             let chunk_header = match ChunkHeader::read_be(&mut reader) {
                 Ok(h) => h,
                 Err(e) => {
@@ -187,7 +187,16 @@ impl LuxologyFile {
                 "IASS" => included_subscene = Some(IncludeAsSubscene::read_be(&mut reader)?),
                 "TAGS" => item_tags = Some(ItemTags::read_be_args(&mut reader, chunk_header.size)?),
                 "CHNM" => channel_names = Some(ChannelNames::read_be_args(&mut reader, chunk_header.size)?),
-                "LAYR" => layers.push(Layer::read_be(&mut reader)?),
+                "LAYR" => {
+                    let layer = Layer::read_be(&mut reader)?;
+                    // workaround, we currently don't know how to parse LAYR chunks that are
+                    // multiresolution. See test in layer.rs
+                    if layer.multires == 0 {
+                        let pos = reader.stream_position()? as i64;
+                        reader.seek_relative(chunk_header.size as i64 - (chunk_start_position - pos))?;
+                    }
+                    layers.push(layer);
+                },
                 "PNTS" => {
                     match layers.last_mut() {
                         Some(layer) => layer.points = Some(Points::read_be_args(&mut reader, (chunk_header.size / 12,))?),
