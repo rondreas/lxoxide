@@ -1,7 +1,7 @@
 use binrw::{BinRead, BinReaderExt, NullString};
 use std::fmt;
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, Seek};
 use std::path::Path as StdPath;
 
 pub mod animation;
@@ -16,12 +16,13 @@ pub use primitives::{ChunkHeader, ID4};
 
 use animation::{Action, Envelope};
 use geometry::layer::{
-    DiscontinousVertexMap, Layer, Points, PolygonList, PolygonTagMapping, VertexMap,
+    DiscontinousVertexMap, Layer, Points, BoundingBox, PolygonList, PolygonTagMapping, VertexMap,
     VertexMapParameter,
 };
-use item::Item;
+use geometry::trisurf::TriSurfGroupHeader;
+use item::{Item, DataBlock};
 use media::Audio;
-use meta::{ChannelNames, ItemTags};
+use meta::{IncludeAsSubscene, ChannelNames, ItemTags, Description};
 
 #[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[br(repr = u32)]
@@ -68,28 +69,6 @@ pub struct Header {
     pub kind: Extension,
 }
 
-// Enum for all chunks, storing unknown with information to more easy check hexdump
-#[derive(Debug)]
-pub enum Chunk {
-    VRSN(Version),
-    APPV(ApplicationVersion),
-    ENCO(Encoding),
-    TAGS(ItemTags),
-    CHNM(ChannelNames),
-    LAYR(Layer),
-    PNTS(Points),
-    VMPA(VertexMapParameter),
-    VMAP(VertexMap),
-    POLS(PolygonList),
-    VMAD(DiscontinousVertexMap),
-    PTAG(PolygonTagMapping),
-    ITEM(Item),
-    ENVL(Envelope),
-    ACTN(Action),
-    AANI(Audio),
-    Unknown { kind: ID4, position: u64, size: u32 },
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
     #[error("IFF files must start with FORM")]
@@ -128,14 +107,35 @@ pub enum ParseError {
 
 pub struct LuxologyFile {
     pub header: Header,
-    pub chunks: Vec<Chunk>,
+
+    pub description: Option<Description>,
+    pub version: Option<Version>,
+    pub application_version: Option<ApplicationVersion>,
+    pub encoding: Option<Encoding>,
+
+    // even scenes which does not include subscenes, tend to have this chunk
+    pub included_subscene: Option<IncludeAsSubscene>,
+
+    // todo: rewrite these chunks to just be a Vec<NullString>, we don't need structs for them
+    pub item_tags: Option<ItemTags>,
+    pub channel_names: Option<ChannelNames>,
+
+    // geometry is a bit more complex. as first we will have a chunk saying
+    // this is a new layer/trisurf. followed by chunks that make it's data.
+    pub layers: Vec<Layer>,
+    pub trisurfs: Vec<TriSurfGroupHeader>,
+
+    pub items: Vec<Item>,
+    pub envelopes: Vec<Envelope>,
+    pub actions: Vec<Action>,
+
+    pub data_blocks: Vec<DataBlock>,
+
+    // At the end files tend to have audio
+    pub audio: Option<Audio>,
 }
 
 impl LuxologyFile {
-    pub fn new(header: Header, chunks: Vec<Chunk>) -> LuxologyFile {
-        LuxologyFile { header, chunks }
-    }
-
     pub fn from_path<P: AsRef<StdPath>>(path: P) -> Result<LuxologyFile, ParseError> {
         let file = File::open(path)?;
         let meta = file.metadata()?;
@@ -150,15 +150,26 @@ impl LuxologyFile {
             return Err(ParseError::InvalidSize);
         }
 
-        let chunks = Self::parse_chunks(&mut reader)?;
+        let mut description = None;
+        let mut version = None;
+        let mut application_version = None;
+        let mut encoding = None;
+        let mut included_subscene = None;
+        let mut item_tags = None;
+        let mut channel_names = None;
 
-        Ok(LuxologyFile::new(header, chunks))
-    }
+        let mut layers = vec![];
+        let mut trisurfs = vec![];
+        let mut items = vec![];
+        let mut envelopes = vec![];
+        let mut actions = vec![];
+        let mut data_blocks = vec![];
 
-    fn parse_chunks<R: Read + Seek>(reader: &mut R) -> Result<Vec<Chunk>, ParseError> {
-        let mut chunks = Vec::new();
+        let mut audio = None;
+
         loop {
-            let header = match ChunkHeader::read_be(reader) {
+            let chunk_start_position = reader.stream_position()?;
+            let chunk_header = match ChunkHeader::read_be(&mut reader) {
                 Ok(h) => h,
                 Err(e) => {
                     if e.is_eof() {
@@ -168,86 +179,94 @@ impl LuxologyFile {
                 }
             };
 
-            match header.kind.as_str() {
-                "VRSN" => {
-                    let version: Version = reader.read_be().unwrap();
-                    chunks.push(Chunk::VRSN(version));
-                }
-                "APPV" => {
-                    let version: ApplicationVersion = reader.read_be().unwrap();
-                    chunks.push(Chunk::APPV(version));
-                }
-                "ENCO" => {
-                    let encoding: Encoding = reader.read_be().unwrap();
-                    chunks.push(Chunk::ENCO(encoding));
-                }
-                "TAGS" => {
-                    let tags = ItemTags::read_be_args(reader, header.size).unwrap();
-                    chunks.push(Chunk::TAGS(tags));
-                }
-                "CHNM" => {
-                    let channel_names = ChannelNames::read_be_args(reader, header.size).unwrap();
-                    chunks.push(Chunk::CHNM(channel_names));
-                }
-                "LAYR" => {
-                    let layer: Layer = reader.read_be().unwrap();
-                    chunks.push(Chunk::LAYR(layer));
-                }
+            match chunk_header.kind.as_str() {
+                "DESC" => description = Some(Description::read_be(&mut reader)?),
+                "VRSN" => version = Some(Version::read_be(&mut reader)?),
+                "APPV" => application_version = Some(ApplicationVersion::read_be(&mut reader)?),
+                "ENCO" => encoding = Some(Encoding::read_be(&mut reader)?),
+                "IASS" => included_subscene = Some(IncludeAsSubscene::read_be(&mut reader)?),
+                "TAGS" => item_tags = Some(ItemTags::read_be_args(&mut reader, chunk_header.size)?),
+                "CHNM" => channel_names = Some(ChannelNames::read_be_args(&mut reader, chunk_header.size)?),
+                "LAYR" => layers.push(Layer::read_be(&mut reader)?),
                 "PNTS" => {
-                    let points = Points::read_args(reader, (header.size / 12,)).unwrap();
-                    chunks.push(Chunk::PNTS(points));
-                }
+                    match layers.last_mut() {
+                        Some(layer) => layer.points = Some(Points::read_be_args(&mut reader, (chunk_header.size / 12,))?),
+                        _ => eprintln!("Orphan points")
+                    }
+                },
+                "BBOX" => {
+                    match layers.last_mut() {
+                        Some(layer) => layer.bounds = Some(BoundingBox::read_be(&mut reader)?),
+                        _ => eprintln!("Orphan bounds")
+                    }
+                },
                 "VMPA" => {
-                    let vertex_params = VertexMapParameter::read_be(reader)?;
-                    chunks.push(Chunk::VMPA(vertex_params));
-                }
+                    match layers.last_mut() {
+                        Some(layer) => layer.vertex_map_parameters.push(VertexMapParameter::read_be(&mut reader)?),
+                        _ => eprintln!("Orphan vertex map")
+                    }
+                },
                 "VMAP" => {
-                    let vertex_map = VertexMap::read_be_args(reader, header.size)?;
-                    chunks.push(Chunk::VMAP(vertex_map));
-                }
+                    match layers.last_mut() {
+                        Some(layer) => layer.vertex_maps.push(VertexMap::read_be_args(&mut reader, chunk_header.size)?),
+                        _ => eprintln!("Orphan vertex map")
+                    }
+                },
                 "POLS" => {
-                    let polygon_list = PolygonList::read_args(reader, header.size).unwrap();
-                    chunks.push(Chunk::POLS(polygon_list));
-                }
+                    match layers.last_mut() {
+                        Some(layer) => layer.polygons.push(PolygonList::read_be_args(&mut reader, chunk_header.size)?),
+                        _ => eprintln!("Orphan polygon list")
+                    }
+                },
                 "VMAD" => {
-                    let vmad = DiscontinousVertexMap::read_be_args(reader, header.size)?;
-                    chunks.push(Chunk::VMAD(vmad));
-                }
+                    match layers.last_mut() {
+                        Some(layer) => layer.discontinous_vertex_maps.push(DiscontinousVertexMap::read_be_args(&mut reader, chunk_header.size)?),
+                        _ => eprintln!("Orphan discontinous vertex map")
+                    }
+                },
                 "PTAG" => {
-                    let ptag = PolygonTagMapping::read_be_args(reader, header.size)?;
-                    chunks.push(Chunk::PTAG(ptag));
-                }
-                "ITEM" => {
-                    let item = Item::read_args(reader, header.size)?;
-                    chunks.push(Chunk::ITEM(item));
-                }
-                "ENVL" => {
-                    let envelope = Envelope::read_be(reader)?;
-                    chunks.push(Chunk::ENVL(envelope));
-                }
-                "ACTN" => {
-                    let action = Action::read_be_args(reader, header.size)?;
-                    chunks.push(Chunk::ACTN(action));
-                }
-                "AANI" => {
-                    let audio = Audio::read_be_args(reader, header.size)?;
-                    chunks.push(Chunk::AANI(audio));
-                }
+                    match layers.last_mut() {
+                        Some(layer) => layer.polygon_tags.push(PolygonTagMapping::read_be_args(&mut reader, chunk_header.size)?),
+                        _ => eprintln!("Orphan polygon tag mapping")
+                    }
+                },
+                "3GRP" => trisurfs.push(TriSurfGroupHeader::read_be(&mut reader)?),
+                "ITEM" => items.push(Item::read_be_args(&mut reader, chunk_header.size)?),
+                "ENVL" => envelopes.push(Envelope::read_be(&mut reader)?),
+                "ACTN" => actions.push(Action::read_be_args(&mut reader, chunk_header.size)?),
+                "DATA" => data_blocks.push(DataBlock::read_be_args(&mut reader, chunk_header.size)?),
+                "AANI" => audio = Some(Audio::read_be_args(&mut reader, chunk_header.size)?),
                 _ => {
-                    // push the unknown chunk, with offset and size so we can quickly find it
-                    // with hex dump, like `xxd -s position -l size ./path/to/file.lxo`
-                    chunks.push(Chunk::Unknown {
-                        kind: header.kind,
-                        position: reader.stream_position().unwrap() - 8,
-                        size: header.size + 8,
-                    });
+                    // just eprint? or keep in vec<unknowns>?
+                    eprintln!(
+                        "Unknown Chunk {}, pos: {}, size: {}",
+                        chunk_header.kind,
+                        chunk_start_position,
+                        chunk_header.size + 8  // size of header + data
+                    );
 
-                    reader.seek(SeekFrom::Current(header.size as i64))?;
-                }
+                    reader.seek_relative(chunk_header.size as i64)?
+                },
             }
         }
 
-        Ok(chunks)
+        Ok(LuxologyFile{
+            header,
+            description,
+            version,
+            application_version,
+            encoding,
+            included_subscene,
+            item_tags,
+            channel_names,
+            layers,
+            trisurfs,
+            items,
+            envelopes,
+            actions,
+            data_blocks,
+            audio
+        })
     }
 }
 

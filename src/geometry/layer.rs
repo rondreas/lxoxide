@@ -20,7 +20,15 @@ bitflags! {
     }
 }
 
-#[derive(BinRead, Debug, PartialEq)]
+#[derive(BinRead, Debug)]
+#[br(repr=u16)]
+pub enum BoundaryRules {
+    SmoothAll,
+    CreaseAll,
+    CreaseEdges,
+}
+
+#[derive(BinRead, Debug)]
 #[br(big)]
 pub struct Layer {
     pub index: u16,
@@ -30,14 +38,40 @@ pub struct Layer {
     #[br(align_after = 2)]
     pub name: NullString,
     pub parent: u16,
-    pub subdivision_level: f32, // oddly enough, Modo's UI only allow integers to set this
+    pub subdivision_level: f32,
     pub curve_angle: f32,
-    pub scale_pivot: [f32; 3],      // 40...
-    pub unused: [u32; 6],           // 64
-    pub reference: u32,             // 68
-    pub spline_patch_level: u16,    //70
-    pub future_expansion: [u16; 3], // 76
-    pub unknown: [u16; 7],          // todo: find what each u16 here means in Modo
+    pub scale_pivot: [f32; 3],
+    pub unused: [u32; 6],
+    pub reference: u32,
+    pub spline_patch_level: u16,
+    pub future_expansion: [u16; 3],
+    pub boundary_rules: BoundaryRules,
+    pub unknown: [u16; 2],
+
+    // The following are actually separate chunks, but we are making the
+    // layer be the owner as any PNTS that comes after a LAYR will belong
+    // to that layer. And PNTS that appear before any LAYR will be discarded.
+
+    #[br(ignore)]
+    pub points: Option<Points>,
+
+    #[br(ignore)]
+    pub bounds: Option<BoundingBox>,
+
+    #[br(ignore)]
+    pub vertex_map_parameters: Vec<VertexMapParameter>,
+
+    #[br(ignore)]
+    pub vertex_maps: Vec<VertexMap>,
+
+    #[br(ignore)]
+    pub polygons: Vec<PolygonList>,
+
+    #[br(ignore)]
+    pub discontinous_vertex_maps: Vec<DiscontinousVertexMap>,
+
+    #[br(ignore)]
+    pub polygon_tags: Vec<PolygonTagMapping>,
 }
 
 impl fmt::Display for Layer {

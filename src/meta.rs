@@ -25,7 +25,7 @@ pub struct Preview {
 
 // todo: create a scene with multiple references to see if each ref get's it's own IASS
 // or if each reference is a XREF subchunk for IASS
-#[derive(Debug)]
+#[derive(BinRead, Debug)]
 pub struct IncludeAsSubscene {
     pub reference: SubsceneReference,
 }
