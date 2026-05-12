@@ -91,3 +91,49 @@ impl BinRead for TriSurfTags {
         Ok(TriSurfTags(tags))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ChunkHeader;
+    use binrw::BinReaderExt;
+    use std::io::Cursor;
+
+    #[test]
+    fn trisurf_group_header() {
+        let mut reader = Cursor::new([
+            0x33, 0x47, 0x52, 0x50, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x01,
+            0x00, 0x00, 0x00, 0x23, 0x00, 0x00, 0x00, 0x00,
+        ]);
+
+        let header: ChunkHeader = reader.read_be().unwrap();
+        let group: TriSurfGroupHeader = reader.read_be().unwrap();
+
+        assert_eq!(header.kind, "3GRP");
+        assert_eq!(header.size, 12);
+        assert_eq!(group.trisurf_count, 1);
+        assert_eq!(group.item_reference, 35);
+        assert_eq!(group.flags, 0);
+    }
+
+    #[test]
+    fn trisurf_data_header() {
+        let mut reader = Cursor::new([
+            0x33, 0x53, 0x52, 0x46, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x01, 0x2a,
+            0x00, 0x00, 0x01, 0xe0, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x02,
+            0x00, 0x00, 0x00, 0x00,
+        ]);
+
+        let header: ChunkHeader = reader.read_be().unwrap();
+        let data: TriSurfDataHeader = reader.read_be().unwrap();
+
+        assert_eq!(header.kind, "3SRF");
+        assert_eq!(header.size, 20);
+        assert_eq!(data.vertex_count, 298);
+        assert_eq!(data.triangle_count, 480);
+        assert_eq!(data.vertex_vector_count, 4);
+        assert_eq!(data.tag_count, 2);
+        assert_eq!(data.flags, 0);
+    }
+
+}
