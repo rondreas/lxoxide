@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        println!("{} position: {}, size: {}", chunk_header.kind, position, chunk_header.size);
+        println!("{} position: {}, size: {}", chunk_header.kind, position, chunk_header.size + 8);
         reader.seek_relative(chunk_header.size as i64)?;
     }
 
