@@ -141,7 +141,7 @@ impl LuxologyFile {
         let meta = file.metadata()?;
         let mut reader = BufReader::new(file);
 
-        let header: Header = reader.read_be().unwrap();
+        let header: Header = reader.read_be()?;
 
         // Check that the reported size of content, matches file size
         // Modo will however happily go ahead and just parse the first file if we concat
@@ -187,16 +187,7 @@ impl LuxologyFile {
                 "IASS" => included_subscene = Some(IncludeAsSubscene::read_be(&mut reader)?),
                 "TAGS" => item_tags = Some(ItemTags::read_be_args(&mut reader, chunk_header.size)?),
                 "CHNM" => channel_names = Some(ChannelNames::read_be_args(&mut reader, chunk_header.size)?),
-                "LAYR" => {
-                    let layer = Layer::read_be(&mut reader)?;
-                    // workaround, we currently don't know how to parse LAYR chunks that are
-                    // multiresolution. See test in layer.rs
-                    if layer.multires == 0 {
-                        let pos = reader.stream_position()? as i64;
-                        reader.seek_relative(chunk_header.size as i64 - (chunk_start_position - pos))?;
-                    }
-                    layers.push(layer);
-                },
+                "LAYR" => layers.push(Layer::read_be(&mut reader)?),
                 "PNTS" => {
                     match layers.last_mut() {
                         Some(layer) => layer.points = Some(Points::read_be_args(&mut reader, (chunk_header.size / 12,))?),

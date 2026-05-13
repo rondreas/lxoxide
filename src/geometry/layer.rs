@@ -10,22 +10,33 @@ use std::io::{Read, Seek};
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct LayerFlag: u16 {
-        const Visible      = 0b0000_0001;
-        const Hidden       = 0b0000_0010;
-        const Foreground   = 0b0000_0100;
-        const Background   = 0b0000_1000;
-        const Boundingbox  = 0b0001_0000;
-        const LinearUv     = 0b1000_0000;
-        const Default      = Self::Visible.bits() | Self::Foreground.bits();
+        const Visible           = 0b0000_0000_0000_0001;
+        const Hidden            = 0b0000_0000_0000_0010;
+        const Foreground        = 0b0000_0000_0000_0100;
+        const Background        = 0b0000_0000_0000_1000;
+        const Boundingbox       = 0b0000_0000_0001_0000;
+        const LinearUv          = 0b0000_0000_1000_0000;
+        const Multiresolution   = 0b0010_0000_0000_0000;
+        const Default           = Self::Visible.bits() | Self::Foreground.bits();
     }
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, Debug, PartialEq, Eq)]
 #[br(repr=u16)]
 pub enum BoundaryRules {
     SmoothAll,
     CreaseAll,
     CreaseEdges,
+}
+
+// Optional data for layers, mostly unknown what the fields mean.
+#[derive(BinRead, Debug)]
+#[br(big)]
+pub struct Multiresolution {
+    pub unk0: [u8; 16],
+    #[br(align_after = 2)]
+    pub name: NullString,
+    pub unk1: [u8; 34],
 }
 
 #[derive(BinRead, Debug)]
@@ -47,7 +58,10 @@ pub struct Layer {
     pub future_expansion: [u16; 3],
     pub boundary_rules: BoundaryRules,
     pub unknown: u16,
-    pub multires: u16,
+    pub extra: u16,  // todo: figure out naming for this enum, 0= multires, 1= ??? 2= default
+
+    #[br(if(flags.contains(LayerFlag::Multiresolution)))]
+    pub multires: Option<Multiresolution>,
 
     // The following are actually separate chunks, but we are making the
     // layer be the owner as any PNTS that comes after a LAYR will belong
@@ -314,25 +328,16 @@ mod tests {
         let layer: Layer = reader.read_be().unwrap();
 
         assert_eq!(layer.index, 0, "Failed to parse index");
-        assert_eq!(
-            layer.flags,
-            LayerFlag::Default,
-            "Failed to parse layer flag"
-        );
-        assert!(layer.name.is_empty(), "Failed to parse name");
-        assert_eq!(
-            layer.parent, 0xffff,
-            "Expected parent to be 0xffff, ie not set"
-        );
-        assert_eq!(
-            layer.subdivision_level, 2.0,
-            "Expected 2.0 in subdivision level"
-        );
-        assert_eq!(layer.reference, 0, "Reference bad");
-        assert_eq!(layer.spline_patch_level, 16, "spline patch");
-        assert_eq!(layer.future_expansion, [0, 0, 0]);
+        assert_eq!(layer.flags, LayerFlag::Default);
+        assert!(layer.name.is_empty());
+        assert_eq!(layer.parent, 0xffff);
+        assert_eq!(layer.subdivision_level, 2.0);
+        assert_eq!(layer.reference, 0);
+        assert_eq!(layer.spline_patch_level, 16);
+        assert_eq!(layer.future_expansion, [0u16; 3]);
+        assert_eq!(layer.boundary_rules, BoundaryRules::CreaseAll);
 
-        // todo -  as we don't know what the other values can mean we leave them out from tests
+        assert!(layer.multires.is_none());
     }
 
     #[test]
@@ -487,9 +492,48 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    fn multiresolution_layer() {
-        // Binary dump from an empty layer, with Multiresolution set to True
+    fn named_multiresolution_layer() {
+        let mut reader = Cursor::new([
+            0x4c, 0x41, 0x59, 0x52, 0x00, 0x00, 0x00, 0x9a, 0x00, 0x02, 0x20, 0x05,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x4d, 0x75, 0x6c, 0x74, 0x69, 0x72, 0x65, 0x73, 0x6f, 0x6c, 0x75, 0x74,
+            0x69, 0x6f, 0x6e, 0x00, 0xff, 0xff, 0x40, 0x00, 0x00, 0x00, 0x3e, 0x86,
+            0x0a, 0x92, 0x3f, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+            0x00, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x4c, 0x61, 0x79, 0x65, 0x72, 0x20, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
+            0x3f, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x02
+        ]);
+
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        let layer = Layer::read_be(&mut reader).unwrap();
+
+        assert_eq!(layer.index, 2);
+        assert_eq!(layer.flags, LayerFlag::Default | LayerFlag::Multiresolution);
+        assert_eq!(layer.pivot, [0f32; 3]);
+        assert_eq!(layer.name, "Multiresolution".into());
+        assert_eq!(layer.parent, 0xffff);
+        assert_eq!(layer.subdivision_level, 2f32);
+        assert_eq!(layer.spline_patch_level, 3);
+        assert_eq!(layer.curve_angle, 15f32.to_radians()); 
+
+        assert!(layer.multires.is_some());
+
+        assert_eq!(
+            reader.stream_position().unwrap(),
+            (header.size + 8).into(),
+            "Failed to read the whole chunk"
+        );
+
+    }
+
+    #[test]
+    fn nameless_multiresolution_layer() {
         let mut reader = Cursor::new([
             0x4c, 0x41, 0x59, 0x52, 0x00, 0x00, 0x00, 0x8c, 0x00, 0x01, 0x20, 0x05,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -510,18 +554,19 @@ mod tests {
         let layer = Layer::read_be(&mut reader).unwrap();
 
         assert_eq!(layer.index, 1);
-        assert_eq!(layer.flags, LayerFlag::Default);
+        assert_eq!(layer.flags, LayerFlag::Default | LayerFlag::Multiresolution);
         assert_eq!(layer.pivot, [0f32; 3]);
         assert!(layer.name.is_empty());
         assert_eq!(layer.parent, 0xffff);
         assert_eq!(layer.subdivision_level, 2f32);
 
-        assert_eq!(layer.multires, 0);
+        assert!(layer.multires.is_some());
 
         assert_eq!(
             reader.stream_position().unwrap(),
             (header.size + 8).into(),
             "Failed to read the whole chunk"
         );
+
     }
 }
