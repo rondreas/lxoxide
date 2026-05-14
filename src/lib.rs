@@ -179,6 +179,11 @@ impl LuxologyFile {
                 }
             };
 
+            let remaining_bytes = meta.len() - chunk_start_position as u64;
+            if (chunk_header.size as u64 + 8) > remaining_bytes {
+                return Err(ParseError::InvalidSize);
+            }
+
             match chunk_header.kind.as_str() {
                 "DESC" => description = Some(Description::read_be(&mut reader)?),
                 "VRSN" => version = Some(Version::read_be(&mut reader)?),
