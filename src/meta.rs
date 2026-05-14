@@ -87,7 +87,7 @@ pub struct ItemReference {
 // todo: XREF chunk, no idea what the content means... IDEL & XMAN
 #[derive(BinRead, Debug)]
 #[br(import(size: u32))]
-pub struct Reference(#[br(count = size)] Vec<u8>);
+pub struct Reference(#[br(count = size)] pub Vec<u8>);
 
 #[derive(Debug)]
 pub struct ItemTags {
