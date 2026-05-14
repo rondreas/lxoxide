@@ -25,12 +25,44 @@ pub struct Preview {
 
 // todo: create a scene with multiple references to see if each ref get's it's own IASS
 // or if each reference is a XREF subchunk for IASS
-#[derive(BinRead, Debug)]
+#[derive(Debug)]
 pub struct IncludeAsSubscene {
-    pub reference: SubsceneReference,
+    pub references: Vec<SubsceneReference>,
 }
 
-#[derive(BinRead, Debug)]
+impl BinRead for IncludeAsSubscene {
+    type Args<'a> = u32;
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        _endian: binrw::Endian,
+        size: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let start = reader.stream_position()?;
+        let mut references = vec![];
+
+        while reader.stream_position()? - start < size as u64 {
+            let header = SubChunkHeader::read_be(reader)?;
+            match header.kind.as_str() {
+                "XREF" => references.push(SubsceneReference::read_be(reader)?),
+                _ => {
+                    let pos = reader.stream_position()?;
+                    reader.seek_relative(header.size as i64)?;
+                    eprintln!(
+                        "Unknown IASS subchunk {} at {} size {}",
+                        header.kind.as_str(),
+                        pos - 6,
+                        header.size
+                    );
+                }
+            }
+        }
+
+        Ok(IncludeAsSubscene { references })
+    }
+}
+
+#[derive(BinRead, Debug, PartialEq)]
 pub struct SubsceneReference {
     #[br(align_after = 2)]
     pub name: NullString,
@@ -171,6 +203,36 @@ mod tests {
 
         // assert we've consumed all bytes for chunk
         assert_eq!(reader.stream_position().unwrap(), 18);
+    }
+
+    #[test]
+    fn empty_include_as_subscene() {
+        let mut reader = Cursor::new([0x49, 0x41, 0x53, 0x53, 0x00, 0x00, 0x00, 0x00]);
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        let include_as_subscene =
+            IncludeAsSubscene::read_be_args(&mut reader, header.size).unwrap();
+        assert!(include_as_subscene.references.is_empty());
+    }
+
+    #[test]
+    fn include_as_subscene_with_one_reference() {
+        let mut reader = Cursor::new([
+            0x49, 0x41, 0x53, 0x53, 0x00, 0x00, 0x00, 0x30, 0x58, 0x52, 0x45, 0x46, 0x00, 0x2a,
+            0x6d, 0x79, 0x5f, 0x73, 0x63, 0x65, 0x6e, 0x65, 0x00, 0x00, 0x44, 0x3a, 0x5c, 0x70,
+            0x72, 0x6f, 0x6a, 0x65, 0x63, 0x74, 0x5c, 0x73, 0x63, 0x65, 0x6e, 0x65, 0x73, 0x5c,
+            0x6d, 0x79, 0x5f, 0x73, 0x63, 0x65, 0x6e, 0x65, 0x2e, 0x6c, 0x78, 0x6f, 0x00, 0x00,
+        ]);
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        let include_as_subscene =
+            IncludeAsSubscene::read_be_args(&mut reader, header.size).unwrap();
+        assert_eq!(include_as_subscene.references.len(), 1);
+        assert_eq!(
+            include_as_subscene.references[0],
+            SubsceneReference {
+                name: "my_scene".into(),
+                path: "D:\\project\\scenes\\my_scene.lxo".into()
+            }
+        );
     }
 
     #[test]

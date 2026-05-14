@@ -41,7 +41,7 @@ impl fmt::Display for VX {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ID4([u8; 4]);
 
 impl ID4 {
@@ -75,11 +75,9 @@ impl BinRead for ID4 {
     ) -> BinResult<Self> {
         let mut bytes = [0u8; 4];
         reader.read_exact(&mut bytes)?;
-        ID4::from_bytes(bytes).map_err(|e| {
-            binrw::Error::Custom {
-                pos: reader.stream_position().unwrap_or(0),
-                err: Box::new(e),
-            }
+        ID4::from_bytes(bytes).map_err(|e| binrw::Error::Custom {
+            pos: reader.stream_position().unwrap_or(0),
+            err: Box::new(e),
         })
     }
 }

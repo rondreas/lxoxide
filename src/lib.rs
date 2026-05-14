@@ -16,13 +16,13 @@ pub use primitives::{ChunkHeader, ID4};
 
 use animation::{Action, Envelope};
 use geometry::layer::{
-    DiscontinousVertexMap, Layer, Points, BoundingBox, PolygonList, PolygonTagMapping, VertexMap,
-    VertexMapParameter,
+    BoundingBox, DiscontinousVertexMap, Layer, Points, PolygonGroup, PolygonList,
+    PolygonTagMapping, VertexMap, VertexMapParameter,
 };
 use geometry::trisurf::TriSurfGroupHeader;
-use item::{Item, DataBlock};
+use item::{DataBlock, Item};
 use media::Audio;
-use meta::{IncludeAsSubscene, ChannelNames, ItemTags, Description};
+use meta::{ChannelNames, Description, IncludeAsSubscene, ItemTags};
 
 #[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[br(repr = u32)]
@@ -98,6 +98,9 @@ pub enum ParseError {
     #[error("Non supported Channel Vector data type")]
     ChannelVectorArray,
 
+    #[error("No previous parsed POLS chunk")]
+    MissingPolygonsList,
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
@@ -147,7 +150,7 @@ impl LuxologyFile {
         // Modo will however happily go ahead and just parse the first file if we concat
         // two files. Causing the second FORM to just be dropped when saving.
         if meta.len() != header.size as u64 + 8 {
-            return Err(ParseError::InvalidSize);
+            return Err(ParseError::SizeMismatch);
         }
 
         let mut description = None;
@@ -166,6 +169,10 @@ impl LuxologyFile {
         let mut data_blocks = vec![];
 
         let mut audio = None;
+
+        // While parsing layers, we keep track of the last polygon kind as we need to match
+        // VMAD and PTAG to the previous POLS
+        let mut last_pols_kind = ID4::new(*b"UNKN");
 
         loop {
             let chunk_start_position = reader.stream_position()? as i64;
@@ -189,57 +196,86 @@ impl LuxologyFile {
                 "VRSN" => version = Some(Version::read_be(&mut reader)?),
                 "APPV" => application_version = Some(ApplicationVersion::read_be(&mut reader)?),
                 "ENCO" => encoding = Some(Encoding::read_be(&mut reader)?),
-                "IASS" => included_subscene = Some(IncludeAsSubscene::read_be(&mut reader)?),
+                "IASS" => included_subscene = Some(IncludeAsSubscene::read_be_args(&mut reader, chunk_header.size)?),
                 "TAGS" => item_tags = Some(ItemTags::read_be_args(&mut reader, chunk_header.size)?),
-                "CHNM" => channel_names = Some(ChannelNames::read_be_args(&mut reader, chunk_header.size)?),
+                "CHNM" => {
+                    channel_names =
+                        Some(ChannelNames::read_be_args(&mut reader, chunk_header.size)?)
+                }
                 "LAYR" => layers.push(Layer::read_be(&mut reader)?),
-                "PNTS" => {
-                    match layers.last_mut() {
-                        Some(layer) => layer.points = Some(Points::read_be_args(&mut reader, (chunk_header.size / 12,))?),
-                        _ => eprintln!("Orphan points")
+                "PNTS" => match layers.last_mut() {
+                    Some(layer) => {
+                        layer.geometry.points = Some(Points::read_be_args(
+                            &mut reader,
+                            (chunk_header.size / 12,),
+                        )?);
                     }
+                    _ => eprintln!("Orphan points"),
                 },
-                "BBOX" => {
-                    match layers.last_mut() {
-                        Some(layer) => layer.bounds = Some(BoundingBox::read_be(&mut reader)?),
-                        _ => eprintln!("Orphan bounds")
-                    }
+                "BBOX" => match layers.last_mut() {
+                    Some(layer) => layer.geometry.bounds = Some(BoundingBox::read_be(&mut reader)?),
+                    _ => eprintln!("Orphan bounds"),
                 },
-                "VMPA" => {
-                    match layers.last_mut() {
-                        Some(layer) => layer.vertex_map_parameters.push(VertexMapParameter::read_be(&mut reader)?),
-                        _ => eprintln!("Orphan vertex map")
-                    }
+                "VMPA" => match layers.last_mut() {
+                    Some(layer) => layer
+                        .geometry
+                        .vertex_map_parameters
+                        .push(VertexMapParameter::read_be(&mut reader)?),
+                    _ => eprintln!("Orphan vertex map"),
                 },
-                "VMAP" => {
-                    match layers.last_mut() {
-                        Some(layer) => layer.vertex_maps.push(VertexMap::read_be_args(&mut reader, chunk_header.size)?),
-                        _ => eprintln!("Orphan vertex map")
-                    }
+                "VMAP" => match layers.last_mut() {
+                    Some(layer) => layer
+                        .geometry
+                        .vertex_maps
+                        .push(VertexMap::read_be_args(&mut reader, chunk_header.size)?),
+                    _ => eprintln!("Orphan vertex map"),
                 },
                 "POLS" => {
+                    let polygons = PolygonList::read_be_args(&mut reader, chunk_header.size)?;
+                    last_pols_kind = polygons.kind;
                     match layers.last_mut() {
-                        Some(layer) => layer.polygons.push(PolygonList::read_be_args(&mut reader, chunk_header.size)?),
-                        _ => eprintln!("Orphan polygon list")
+                        Some(layer) => {
+                            layer
+                                .geometry
+                                .polygons
+                                .insert(polygons.kind, PolygonGroup::new(polygons));
+                        }
+                        _ => eprintln!("Orphan polygon list"),
                     }
+                }
+                "VMAD" => match layers.last_mut() {
+                    Some(layer) => layer
+                        .geometry
+                        .polygons
+                        .get_mut(&last_pols_kind)
+                        .ok_or(ParseError::MissingPolygonsList)?
+                        .vertex_maps
+                        .push(DiscontinousVertexMap::read_be_args(
+                            &mut reader,
+                            chunk_header.size,
+                        )?),
+                    _ => eprintln!("Orphan discontinous vertex map"),
                 },
-                "VMAD" => {
-                    match layers.last_mut() {
-                        Some(layer) => layer.discontinous_vertex_maps.push(DiscontinousVertexMap::read_be_args(&mut reader, chunk_header.size)?),
-                        _ => eprintln!("Orphan discontinous vertex map")
-                    }
-                },
-                "PTAG" => {
-                    match layers.last_mut() {
-                        Some(layer) => layer.polygon_tags.push(PolygonTagMapping::read_be_args(&mut reader, chunk_header.size)?),
-                        _ => eprintln!("Orphan polygon tag mapping")
-                    }
+                "PTAG" => match layers.last_mut() {
+                    Some(layer) => layer
+                        .geometry
+                        .polygons
+                        .get_mut(&last_pols_kind)
+                        .ok_or(ParseError::MissingPolygonsList)?
+                        .tags
+                        .push(PolygonTagMapping::read_be_args(
+                            &mut reader,
+                            chunk_header.size,
+                        )?),
+                    _ => eprintln!("Orphan polygon tag mapping"),
                 },
                 "3GRP" => trisurfs.push(TriSurfGroupHeader::read_be(&mut reader)?),
                 "ITEM" => items.push(Item::read_be_args(&mut reader, chunk_header.size)?),
                 "ENVL" => envelopes.push(Envelope::read_be(&mut reader)?),
                 "ACTN" => actions.push(Action::read_be_args(&mut reader, chunk_header.size)?),
-                "DATA" => data_blocks.push(DataBlock::read_be_args(&mut reader, chunk_header.size)?),
+                "DATA" => {
+                    data_blocks.push(DataBlock::read_be_args(&mut reader, chunk_header.size)?)
+                }
                 "AANI" => audio = Some(Audio::read_be_args(&mut reader, chunk_header.size)?),
                 _ => {
                     // just eprint? or keep in vec<unknowns>?
@@ -247,15 +283,15 @@ impl LuxologyFile {
                         "Unknown Chunk {}, pos: {}, size: {}",
                         chunk_header.kind,
                         chunk_start_position,
-                        chunk_header.size + 8  // size of header + data
+                        chunk_header.size + 8 // size of header + data
                     );
 
                     reader.seek_relative(chunk_header.size as i64)?
-                },
+                }
             }
         }
 
-        Ok(LuxologyFile{
+        Ok(LuxologyFile {
             header,
             description,
             version,
@@ -270,7 +306,7 @@ impl LuxologyFile {
             envelopes,
             actions,
             data_blocks,
-            audio
+            audio,
         })
     }
 }

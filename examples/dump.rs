@@ -1,7 +1,7 @@
-use lxoxide::{Header, ChunkHeader};
+use binrw::{BinRead, BinReaderExt};
+use lxoxide::{ChunkHeader, Header};
 use std::fs::File;
 use std::io::{BufReader, Seek};
-use binrw::{BinReaderExt, BinRead};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -28,7 +28,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        println!("{} position: {}, size: {}", chunk_header.kind, position, chunk_header.size + 8);
+        println!(
+            "{} position: {}, size: {}",
+            chunk_header.kind,
+            position,
+            chunk_header.size + 8
+        );
         reader.seek_relative(chunk_header.size as i64)?;
     }
 
