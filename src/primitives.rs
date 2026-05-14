@@ -41,7 +41,7 @@ impl fmt::Display for VX {
     }
 }
 
-#[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ID4([u8; 4]);
 
 impl ID4 {
@@ -62,6 +62,25 @@ impl ID4 {
 
     pub fn as_str(&self) -> &str {
         std::str::from_utf8(&self.0).unwrap_or("UNKN")
+    }
+}
+
+impl BinRead for ID4 {
+    type Args<'a> = ();
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        _endian: Endian,
+        (): Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let mut bytes = [0u8; 4];
+        reader.read_exact(&mut bytes)?;
+        ID4::from_bytes(bytes).map_err(|e| {
+            binrw::Error::Custom {
+                pos: reader.stream_position().unwrap_or(0),
+                err: Box::new(e),
+            }
+        })
     }
 }
 
@@ -185,6 +204,13 @@ mod tests {
     use super::*;
     use binrw::BinRead;
     use std::io::Cursor;
+
+    #[test]
+    fn non_printable_ascii_id4_errors() {
+        let mut reader = Cursor::new([35u8, 47u8, 201u8, 7u8]);
+        let result = ID4::read_be(&mut reader);
+        assert!(result.is_err());
+    }
 
     #[test]
     fn test_vx() {
