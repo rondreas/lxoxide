@@ -19,7 +19,10 @@ use geometry::layer::{
     BoundingBox, DiscontinousVertexMap, Layer, Points, PolygonGroup, PolygonList,
     PolygonTagMapping, VertexMap, VertexMapParameter,
 };
-use geometry::trisurf::TriSurfGroupHeader;
+use geometry::trisurf::{
+    TriSurfDataHeader, TriSurfGroupHeader, TriSurfTags, TriSurfTriangles, TriSurfVertexVectors,
+    TriSurfVertices,
+};
 use item::{DataBlock, Item};
 use media::Audio;
 use meta::{ChannelNames, Description, IncludeAsSubscene, ItemTags};
@@ -101,6 +104,14 @@ pub enum ParseError {
     #[error("No previous parsed POLS chunk")]
     MissingPolygonsList,
 
+    // Any 3SRF must come after a 3GRP
+    #[error("Missing Trisurface Group Header 3GRP")]
+    MissingTriSurfGroupHeader,
+
+    // Any VRTS, TRIS, VVEC and TTGS must come after a 3SRF
+    #[error("Missing Trisurface Data Header 3SRF")]
+    MissingTriSurfDataHeader,
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
@@ -139,6 +150,19 @@ pub struct LuxologyFile {
 }
 
 impl LuxologyFile {
+    fn get_last_mut_trisurf(
+        trisurfs: &mut [TriSurfGroupHeader],
+    ) -> Result<&mut TriSurfDataHeader, ParseError> {
+        let trisurf = trisurfs
+            .last_mut()
+            .ok_or(ParseError::MissingTriSurfGroupHeader)?
+            .trisurfaces
+            .last_mut()
+            .ok_or(ParseError::MissingTriSurfDataHeader)?;
+
+        Ok(trisurf)
+    }
+
     pub fn from_path<P: AsRef<StdPath>>(path: P) -> Result<LuxologyFile, ParseError> {
         let file = File::open(path)?;
         let meta = file.metadata()?;
@@ -275,6 +299,48 @@ impl LuxologyFile {
                     _ => eprintln!("Orphan polygon tag mapping"),
                 },
                 "3GRP" => trisurfs.push(TriSurfGroupHeader::read_be(&mut reader)?),
+                "3SRF" => trisurfs
+                    .last_mut()
+                    .ok_or(ParseError::MissingTriSurfGroupHeader)?
+                    .trisurfaces
+                    .push(TriSurfDataHeader::read_be(&mut reader)?),
+                "VRTS" => {
+                    let trisurf = Self::get_last_mut_trisurf(&mut trisurfs)?;
+
+                    // Check the vertex count matches the expected size
+                    if trisurf.vertex_count != chunk_header.size / 12 {
+                        return Err(ParseError::InvalidSize);
+                    }
+
+                    trisurf.vertices = Some(TriSurfVertices::read_be_args(
+                        &mut reader,
+                        (trisurf.vertex_count,),
+                    )?);
+                }
+                "TRIS" => {
+                    let trisurf = Self::get_last_mut_trisurf(&mut trisurfs)?;
+
+                    // Check the triangle count matches the expected size
+                    if trisurf.triangle_count != chunk_header.size / 12 {
+                        return Err(ParseError::InvalidSize);
+                    }
+
+                    trisurf.triangles = Some(TriSurfTriangles::read_be_args(
+                        &mut reader,
+                        (trisurf.triangle_count,),
+                    )?);
+                }
+                "VVEC" => {
+                    let trisurf = Self::get_last_mut_trisurf(&mut trisurfs)?;
+                    trisurf.vectors.push(TriSurfVertexVectors::read_be_args(
+                        &mut reader,
+                        chunk_header.size,
+                    )?);
+                }
+                "TTGS" => {
+                    let trisurf = Self::get_last_mut_trisurf(&mut trisurfs)?;
+                    trisurf.tags = Some(TriSurfTags::read_be_args(&mut reader, chunk_header.size)?);
+                }
                 "ITEM" => items.push(Item::read_be_args(&mut reader, chunk_header.size)?),
                 "ENVL" => envelopes.push(Envelope::read_be(&mut reader)?),
                 "ACTN" => actions.push(Action::read_be_args(&mut reader, chunk_header.size)?),

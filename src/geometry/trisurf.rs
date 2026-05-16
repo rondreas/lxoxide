@@ -8,6 +8,9 @@ pub struct TriSurfGroupHeader {
     pub trisurf_count: u32,
     pub item_reference: u32,
     pub flags: u32,
+
+    #[br(ignore)]
+    pub trisurfaces: Vec<TriSurfDataHeader>,
 }
 
 #[derive(Debug, BinRead)]
@@ -17,6 +20,18 @@ pub struct TriSurfDataHeader {
     pub vertex_vector_count: u32,
     pub tag_count: u32,
     pub flags: u32,
+
+    #[br(ignore)]
+    pub vertices: Option<TriSurfVertices>,
+
+    #[br(ignore)]
+    pub triangles: Option<TriSurfTriangles>,
+
+    #[br(ignore)]
+    pub vectors: Vec<TriSurfVertexVectors>,
+
+    #[br(ignore)]
+    pub tags: Option<TriSurfTags>,
 }
 
 #[derive(Debug, BinRead)]
@@ -50,7 +65,7 @@ impl BinRead for TriSurfVertexVectors {
         let name = read_aligned_nullstring(reader)?;
 
         let mut vectors = Vec::new();
-        if reader.stream_position()? - start < size as u64 {
+        while reader.stream_position()? - start < size as u64 {
             let mut v = Vec::with_capacity(dimensions as usize);
             for _ in 0..dimensions {
                 v.push(f32::read_be(reader)?);
@@ -81,7 +96,7 @@ impl BinRead for TriSurfTags {
         let mut tags = Vec::new();
 
         let start = reader.stream_position()?;
-        if reader.stream_position()? - start < size as u64 {
+        while reader.stream_position()? - start < size as u64 {
             let kind = ID4::read_be(reader)?;
             let name = read_aligned_nullstring(reader)?;
 
