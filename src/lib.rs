@@ -196,7 +196,12 @@ impl LuxologyFile {
                 "VRSN" => version = Some(Version::read_be(&mut reader)?),
                 "APPV" => application_version = Some(ApplicationVersion::read_be(&mut reader)?),
                 "ENCO" => encoding = Some(Encoding::read_be(&mut reader)?),
-                "IASS" => included_subscene = Some(IncludeAsSubscene::read_be_args(&mut reader, chunk_header.size)?),
+                "IASS" => {
+                    included_subscene = Some(IncludeAsSubscene::read_be_args(
+                        &mut reader,
+                        chunk_header.size,
+                    )?)
+                }
                 "TAGS" => item_tags = Some(ItemTags::read_be_args(&mut reader, chunk_header.size)?),
                 "CHNM" => {
                     channel_names =
