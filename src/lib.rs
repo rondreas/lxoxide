@@ -101,6 +101,12 @@ pub enum ParseError {
     #[error("Non supported Channel Vector data type")]
     ChannelVectorArray,
 
+    #[error("Missing LAYR")]
+    MissingLayer,
+
+    #[error("Missing PNTS")]
+    MissingPoints,
+
     #[error("No previous parsed POLS chunk")]
     MissingPolygonsList,
 
@@ -232,48 +238,52 @@ impl LuxologyFile {
                         Some(ChannelNames::read_be_args(&mut reader, chunk_header.size)?)
                 }
                 "LAYR" => layers.push(Layer::read_be(&mut reader)?),
-                "PNTS" => match layers.last_mut() {
-                    Some(layer) => {
-                        layer.geometry.points = Some(Points::read_be_args(
-                            &mut reader,
-                            (chunk_header.size / 12,),
-                        )?);
-                    }
-                    _ => eprintln!("Orphan points"),
-                },
-                "BBOX" => match layers.last_mut() {
-                    Some(layer) => layer.geometry.bounds = Some(BoundingBox::read_be(&mut reader)?),
-                    _ => eprintln!("Orphan bounds"),
-                },
-                "VMPA" => match layers.last_mut() {
-                    Some(layer) => layer
+                "PNTS" => {
+                    layers
+                        .last_mut()
+                        .ok_or(ParseError::MissingLayer)?
+                        .geometry
+                        .points = Some(Points::read_be_args(
+                        &mut reader,
+                        (chunk_header.size / 12,),
+                    )?);
+                }
+                "BBOX" => {
+                    layers
+                        .last_mut()
+                        .ok_or(ParseError::MissingLayer)?
+                        .geometry
+                        .bounds = Some(BoundingBox::read_be(&mut reader)?);
+                }
+                "VMPA" => {
+                    layers
+                        .last_mut()
+                        .ok_or(ParseError::MissingLayer)?
                         .geometry
                         .vertex_map_parameters
-                        .push(VertexMapParameter::read_be(&mut reader)?),
-                    _ => eprintln!("Orphan vertex map"),
-                },
-                "VMAP" => match layers.last_mut() {
-                    Some(layer) => layer
+                        .push(VertexMapParameter::read_be(&mut reader)?);
+                }
+                "VMAP" => {
+                    layers
+                        .last_mut()
+                        .ok_or(ParseError::MissingLayer)?
                         .geometry
                         .vertex_maps
-                        .push(VertexMap::read_be_args(&mut reader, chunk_header.size)?),
-                    _ => eprintln!("Orphan vertex map"),
-                },
+                        .push(VertexMap::read_be_args(&mut reader, chunk_header.size)?);
+                }
                 "POLS" => {
                     let polygons = PolygonList::read_be_args(&mut reader, chunk_header.size)?;
                     last_pols_kind = polygons.kind;
-                    match layers.last_mut() {
-                        Some(layer) => {
-                            layer
-                                .geometry
-                                .polygons
-                                .insert(polygons.kind, PolygonGroup::new(polygons));
-                        }
-                        _ => eprintln!("Orphan polygon list"),
-                    }
+                    let geometry = &mut layers.last_mut().ok_or(ParseError::MissingLayer)?.geometry;
+                    geometry.points.as_ref().ok_or(ParseError::MissingPoints)?;
+                    geometry
+                        .polygons
+                        .insert(polygons.kind, PolygonGroup::new(polygons));
                 }
-                "VMAD" => match layers.last_mut() {
-                    Some(layer) => layer
+                "VMAD" => {
+                    layers
+                        .last_mut()
+                        .ok_or(ParseError::MissingLayer)?
                         .geometry
                         .polygons
                         .get_mut(&last_pols_kind)
@@ -282,11 +292,12 @@ impl LuxologyFile {
                         .push(DiscontinousVertexMap::read_be_args(
                             &mut reader,
                             chunk_header.size,
-                        )?),
-                    _ => eprintln!("Orphan discontinous vertex map"),
-                },
-                "PTAG" => match layers.last_mut() {
-                    Some(layer) => layer
+                        )?);
+                }
+                "PTAG" => {
+                    layers
+                        .last_mut()
+                        .ok_or(ParseError::MissingLayer)?
                         .geometry
                         .polygons
                         .get_mut(&last_pols_kind)
@@ -295,9 +306,8 @@ impl LuxologyFile {
                         .push(PolygonTagMapping::read_be_args(
                             &mut reader,
                             chunk_header.size,
-                        )?),
-                    _ => eprintln!("Orphan polygon tag mapping"),
-                },
+                        )?);
+                }
                 "3GRP" => trisurfs.push(TriSurfGroupHeader::read_be(&mut reader)?),
                 "3SRF" => trisurfs
                     .last_mut()
