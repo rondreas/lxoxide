@@ -274,6 +274,82 @@ mod tests {
     use std::io::Cursor;
 
     #[test]
+    fn version() {
+        let mut reader = Cursor::new([
+            0x56, 0x52, 0x53, 0x4e, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00,
+            0x00, 0x00, 0x6e, 0x65, 0x78, 0x75, 0x73, 0x20, 0x32, 0x30, 0x30, 0x30, 0x20, 0x62,
+            0x79, 0x20, 0x54, 0x68, 0x65, 0x20, 0x46, 0x6f, 0x75, 0x6e, 0x64, 0x72, 0x79, 0x00,
+        ]);
+
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        assert_eq!(header.kind, "VRSN");
+
+        let version = Version::read_be(&mut reader).unwrap();
+        assert_eq!(
+            version,
+            Version {
+                major: 16,
+                minor: 0,
+                application: "nexus 2000 by The Foundry".into(),
+            }
+        );
+
+        assert_eq!(reader.stream_position().unwrap(), 42);
+    }
+
+    #[test]
+    fn application_version() {
+        let mut reader = Cursor::new([
+            0x41, 0x50, 0x50, 0x56, 0x00, 0x00, 0x00, 0x1c, 0x00, 0x00, 0x07, 0xd0, 0x00, 0x00,
+            0x07, 0xd0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x17, 0xc6, 0x4d, 0x6f, 0x64, 0x6f,
+            0x20, 0x31, 0x36, 0x2e, 0x30, 0x76, 0x31, 0x00,
+        ]);
+
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        assert_eq!(header.kind, "APPV");
+
+        let application_version = ApplicationVersion::read_be(&mut reader).unwrap();
+        assert_eq!(
+            application_version,
+            ApplicationVersion {
+                base: 2000,
+                major: 2000,
+                minor: 0,
+                build: 661446,
+                application: "Modo 16.0v1".into(),
+            }
+        );
+
+        assert_eq!(reader.stream_position().unwrap(), 36);
+    }
+
+    #[test]
+    fn encoding_utf8() {
+        let mut reader = Cursor::new([
+            0x45, 0x4e, 0x43, 0x4f, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x02,
+        ]);
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        assert_eq!(header.kind, "ENCO");
+        assert_eq!(header.size, 4);
+
+        let encoding = Encoding::read_be(&mut reader).unwrap();
+        assert_eq!(encoding, Encoding::Utf8);
+    }
+
+    #[test]
+    fn invalid_encoding() {
+        let mut reader = Cursor::new([
+            0x45, 0x4e, 0x43, 0x4f, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x0c, 0x02,
+        ]);
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        assert_eq!(header.kind, "ENCO");
+        assert_eq!(header.size, 4);
+
+        let result = Encoding::read_be(&mut reader);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn description() {
         let mut reader = Cursor::new([
             0x44, 0x45, 0x53, 0x43, 0x00, 0x00, 0x00, 0x0a, 0x6c, 0x6f, 0x63, 0x61, 0x74, 0x6f,
