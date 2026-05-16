@@ -1,7 +1,73 @@
 use crate::primitives::SubChunkHeader;
 use crate::utils::read_aligned_nullstring;
 use binrw::{BinRead, BinResult, NullString};
+use std::fmt;
 use std::io::{Read, Seek};
+
+#[derive(BinRead, Debug, PartialEq)]
+#[br(big)]
+pub struct Version {
+    pub major: u32,
+    pub minor: u32,
+    #[br(align_after = 2)]
+    pub application: NullString,
+}
+
+impl fmt::Display for Version {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{} {}", self.major, self.minor, self.application)
+    }
+}
+
+#[derive(BinRead, Debug, PartialEq)]
+#[br(big)]
+pub struct ApplicationVersion {
+    pub base: u32,
+    pub major: u32,
+    pub minor: u32,
+    pub build: u32,
+    #[br(align_after = 2)]
+    pub application: NullString,
+}
+
+impl fmt::Display for ApplicationVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}.{}.{} - {} {}",
+            self.base, self.major, self.minor, self.build, self.application
+        )
+    }
+}
+
+#[derive(BinRead, Debug, PartialEq)]
+#[br(big, repr = u32)]
+pub enum Encoding {
+    Default = 0,
+    Ansi = 1,
+    Utf8 = 2,
+    ShiftJis = 3,
+    EucJp = 4,
+    EucKr = 5,
+    Gb2312 = 6,
+    Big5 = 7,
+}
+
+impl fmt::Display for Encoding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Encoding::Default => "default",
+            Encoding::Ansi => "ANSI",
+            Encoding::Utf8 => "UTF-8",
+            Encoding::ShiftJis => "Shift JIS",
+            Encoding::EucJp => "EUC-JP",
+            Encoding::EucKr => "EUC-KR",
+            Encoding::Gb2312 => "GB2312",
+            Encoding::Big5 => "Big5",
+        };
+        write!(f, "{}", s)
+    }
+}
 
 #[derive(BinRead, Debug)]
 pub struct Description {

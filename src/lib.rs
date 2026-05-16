@@ -1,5 +1,4 @@
-use binrw::{BinRead, BinReaderExt, NullString};
-use std::fmt;
+use binrw::{BinRead, BinReaderExt};
 use std::fs::File;
 use std::io::{BufReader, Seek};
 use std::path::Path as StdPath;
@@ -25,7 +24,9 @@ use geometry::trisurf::{
 };
 use item::{DataBlock, Item};
 use media::Audio;
-use meta::{ChannelNames, Description, IncludeAsSubscene, ItemTags};
+use meta::{
+    ApplicationVersion, ChannelNames, Description, Encoding, IncludeAsSubscene, ItemTags, Version,
+};
 
 #[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
 #[br(repr = u32)]
@@ -45,7 +46,7 @@ impl TryFrom<u32> for Extension {
             0x4c585052 => Ok(Extension::LXPR),
             0x4c585045 => Ok(Extension::LXPE),
             0x4c58504d => Ok(Extension::LXPM),
-            _ => Err(ParseError::InvalidID4),
+            _ => Err(ParseError::NonSupportedExtension),
         }
     }
 }
@@ -389,74 +390,6 @@ impl LuxologyFile {
             data_blocks,
             audio,
         })
-    }
-}
-
-#[derive(BinRead, Debug, PartialEq)]
-#[br(big)]
-pub struct Version {
-    major: u32,
-
-    minor: u32,
-
-    #[br(align_after = 2)]
-    application: NullString,
-}
-
-impl fmt::Display for Version {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}.{} {}", self.major, self.minor, self.application)
-    }
-}
-
-#[derive(BinRead, Debug, PartialEq)]
-#[br(big)]
-pub struct ApplicationVersion {
-    base: u32,
-    major: u32,
-    minor: u32,
-    build: u32,
-
-    #[br(align_after = 2)]
-    application: NullString,
-}
-
-impl fmt::Display for ApplicationVersion {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}.{}.{} - {} {}",
-            self.base, self.major, self.minor, self.build, self.application
-        )
-    }
-}
-
-#[derive(BinRead, Debug, PartialEq)]
-#[br(big, repr = u32)]
-pub enum Encoding {
-    Default = 0,
-    Ansi = 1,
-    Utf8 = 2,
-    ShiftJis = 3,
-    EucJp = 4,
-    EucKr = 5,
-    Gb2312 = 6,
-    Big5 = 7,
-}
-
-impl fmt::Display for Encoding {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            Encoding::Default => "default",
-            Encoding::Ansi => "ANSI",
-            Encoding::Utf8 => "UTF-8",
-            Encoding::ShiftJis => "Shift JIS",
-            Encoding::EucJp => "EUC-JP",
-            Encoding::EucKr => "EUC-KR",
-            Encoding::Gb2312 => "GB2312",
-            Encoding::Big5 => "Big5",
-        };
-        write!(f, "{}", s)
     }
 }
 
