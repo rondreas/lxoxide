@@ -23,11 +23,27 @@ pub struct Preview {
     pub data: Vec<u8>,
 }
 
+// Clips are apparently IASS
+#[derive(Debug, BinRead, PartialEq)]
+pub struct Flat {
+    #[br(align_after = 2)]
+    pub name: NullString,
+    #[br(align_after = 2)]
+    pub source: NullString,
+    #[br(align_after = 2)]
+    pub kind: NullString,
+    #[br(align_after = 2)]
+    pub subkind: NullString,
+    #[br(align_after = 2)]
+    pub path: NullString,
+}
+
 // todo: create a scene with multiple references to see if each ref get's it's own IASS
 // or if each reference is a XREF subchunk for IASS
 #[derive(Debug)]
 pub struct IncludeAsSubscene {
     pub references: Vec<SubsceneReference>,
+    pub clips: Vec<Flat>,
 }
 
 impl BinRead for IncludeAsSubscene {
@@ -40,11 +56,13 @@ impl BinRead for IncludeAsSubscene {
     ) -> BinResult<Self> {
         let start = reader.stream_position()?;
         let mut references = vec![];
+        let mut clips = vec![];
 
         while reader.stream_position()? - start < size as u64 {
             let header = SubChunkHeader::read_be(reader)?;
             match header.kind.as_str() {
                 "XREF" => references.push(SubsceneReference::read_be(reader)?),
+                "FLAT" => clips.push(Flat::read_be(reader)?),
                 _ => {
                     let pos = reader.stream_position()?;
                     reader.seek_relative(header.size as i64)?;
@@ -58,7 +76,7 @@ impl BinRead for IncludeAsSubscene {
             }
         }
 
-        Ok(IncludeAsSubscene { references })
+        Ok(IncludeAsSubscene { references, clips })
     }
 }
 
@@ -284,5 +302,36 @@ mod tests {
         assert_eq!(parent.num, 0);
 
         assert_eq!(reader.stream_position().unwrap(), 20);
+    }
+
+    #[test]
+    fn clip() {
+        let mut reader = Cursor::new([
+            0x49, 0x41, 0x53, 0x53, 0x00, 0x00, 0x00, 0x64, 0x46, 0x4c, 0x41, 0x54, 0x00, 0x5e,
+            0x55, 0x6e, 0x74, 0x69, 0x74, 0x6c, 0x65, 0x64, 0x3a, 0x76, 0x69, 0x64, 0x65, 0x6f,
+            0x53, 0x74, 0x69, 0x6c, 0x6c, 0x30, 0x30, 0x31, 0x00, 0x00, 0x66, 0x69, 0x6c, 0x65,
+            0x6e, 0x61, 0x6d, 0x65, 0x00, 0x00, 0x76, 0x69, 0x64, 0x65, 0x6f, 0x53, 0x74, 0x69,
+            0x6c, 0x6c, 0x00, 0x00, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x00, 0x43, 0x3a, 0x5c, 0x55,
+            0x73, 0x65, 0x72, 0x73, 0x5c, 0x76, 0x61, 0x6c, 0x65, 0x6e, 0x74, 0x69, 0x6e, 0x61,
+            0x5c, 0x44, 0x6f, 0x63, 0x75, 0x6d, 0x65, 0x6e, 0x74, 0x73, 0x5c, 0x55, 0x6e, 0x74,
+            0x69, 0x74, 0x6c, 0x65, 0x64, 0x2e, 0x74, 0x67, 0x61, 0x00,
+        ]);
+
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        let iass = IncludeAsSubscene::read_be_args(&mut reader, header.size).unwrap();
+
+        assert_eq!(iass.clips.len(), 1);
+        assert_eq!(
+            iass.clips[0],
+            Flat {
+                name: "Untitled:videoStill001".into(),
+                source: "filename".into(),
+                kind: "videoStill".into(),
+                subkind: "image".into(),
+                path: "C:\\Users\\valentina\\Documents\\Untitled.tga".into()
+            }
+        );
+
+        assert_eq!(reader.stream_position().unwrap(), 108);
     }
 }
