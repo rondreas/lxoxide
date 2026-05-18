@@ -1,6 +1,6 @@
 use crate::primitives::SubChunkHeader;
 use crate::utils::read_aligned_nullstring;
-use binrw::{BinRead, BinResult, NullString};
+use binrw::{BinRead, BinWrite, BinResult, NullString};
 use std::fmt;
 use std::io::{Read, Seek};
 
@@ -69,9 +69,12 @@ impl fmt::Display for Encoding {
     }
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
+#[br(big)]
+#[bw(big)]
 pub struct Description {
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub text: NullString,
     pub num: u16,
 }
@@ -272,6 +275,7 @@ mod tests {
     use super::*;
     use crate::ChunkHeader;
     use std::io::Cursor;
+    use binrw::BinWriterExt;
 
     #[test]
     fn version() {
@@ -355,14 +359,19 @@ mod tests {
             0x44, 0x45, 0x53, 0x43, 0x00, 0x00, 0x00, 0x0a, 0x6c, 0x6f, 0x63, 0x61, 0x74, 0x6f,
             0x72, 0x00, 0x00, 0x00,
         ]);
-        let _ = ChunkHeader::read_be(&mut reader).unwrap();
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
         let desc = Description::read_be(&mut reader).unwrap();
 
         assert_eq!(desc.text, "locator".into());
         assert_eq!(desc.num, 0);
 
-        // assert we've consumed all bytes for chunk
         assert_eq!(reader.stream_position().unwrap(), 18);
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&desc).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]

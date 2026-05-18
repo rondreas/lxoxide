@@ -1,8 +1,8 @@
 use crate::utils::read_aligned_nullstring;
 use binrw::meta::{EndianKind, ReadEndian};
-use binrw::{BinRead, BinResult, Endian, NullString};
+use binrw::{BinRead, BinWrite, BinResult, Endian, NullString};
 use std::fmt;
-use std::io::{Read, Seek};
+use std::io::{Read, Write, Seek};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -82,6 +82,19 @@ impl BinRead for ID4 {
     }
 }
 
+impl BinWrite for ID4 {
+    type Args<'a> = ();
+
+    fn write_options<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        _endian: Endian,
+        (): Self::Args<'_>,
+    ) -> BinResult<()> {
+        writer.write_all(&self.0).map_err(Into::into)
+    }
+}
+
 impl PartialEq<&str> for ID4 {
     fn eq(&self, other: &&str) -> bool {
         other.len() == 4 && self.0 == other.as_bytes()
@@ -122,8 +135,9 @@ impl fmt::Display for ID4 {
     }
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
+#[bw(big)]
 pub struct ChunkHeader {
     pub kind: ID4,
     pub size: u32,
