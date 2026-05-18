@@ -1,6 +1,6 @@
 use crate::primitives::SubChunkHeader;
 use crate::utils::read_aligned_nullstring;
-use binrw::{BinRead, BinWrite, BinResult, NullString};
+use binrw::{BinRead, BinResult, BinWrite, NullString};
 use std::fmt;
 use std::io::{Read, Seek};
 
@@ -274,8 +274,8 @@ pub struct Parent {
 mod tests {
     use super::*;
     use crate::ChunkHeader;
-    use std::io::Cursor;
     use binrw::BinWriterExt;
+    use std::io::Cursor;
 
     #[test]
     fn version() {

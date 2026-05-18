@@ -11,3 +11,5 @@ thiserror = "2.0.18"
 [[example]]
 name = "dump"
 
+[profile.release]
+debug = true

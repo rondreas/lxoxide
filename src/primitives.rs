@@ -1,8 +1,8 @@
 use crate::utils::read_aligned_nullstring;
 use binrw::meta::{EndianKind, ReadEndian};
-use binrw::{BinRead, BinWrite, BinResult, Endian, NullString};
+use binrw::{BinRead, BinResult, BinWrite, Endian, NullString};
 use std::fmt;
-use std::io::{Read, Write, Seek};
+use std::io::{Read, Seek, Write};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

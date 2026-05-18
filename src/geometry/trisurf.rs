@@ -1,3 +1,4 @@
+use crate::ParseError;
 use crate::primitives::{ID4, Point};
 use crate::utils::read_aligned_nullstring;
 use binrw::{BinRead, BinResult, Endian, NullString};
@@ -40,14 +41,14 @@ pub struct TriSurfVertices(#[br(count = count)] pub Vec<Point>);
 
 #[derive(Debug, BinRead)]
 #[br(big, import(count: u32))]
-pub struct TriSurfTriangles(#[br(count = count)] pub Vec<[u32; 3]>);
+pub struct TriSurfTriangles(#[br(count = count*3)] pub Vec<u32>);
 
 #[derive(Debug)]
 pub struct TriSurfVertexVectors {
     pub kind: ID4,
     pub dimensions: u32,
     pub name: NullString,
-    pub vectors: Vec<Vec<f32>>,
+    pub vectors: Vec<f32>,
 }
 
 impl BinRead for TriSurfVertexVectors {
@@ -64,14 +65,21 @@ impl BinRead for TriSurfVertexVectors {
         let dimensions = u32::read_be(reader)?;
         let name = read_aligned_nullstring(reader)?;
 
-        let mut vectors = Vec::new();
-        while reader.stream_position()? - start < size as u64 {
-            let mut v = Vec::with_capacity(dimensions as usize);
-            for _ in 0..dimensions {
-                v.push(f32::read_be(reader)?);
-            }
-            vectors.push(v);
+        let bytes_left = size - (reader.stream_position()? - start) as u32;
+        if !bytes_left.is_multiple_of(4) {
+            binrw::Error::Custom {
+                pos: start,
+                err: Box::new(ParseError::InvalidSize),
+            };
         }
+
+        let mut buf = vec![0u8; bytes_left as usize];
+        reader.read_exact(&mut buf)?;
+
+        let vectors: Vec<f32> = buf
+            .chunks_exact(4)
+            .map(|b| f32::from_be_bytes(b.try_into().unwrap()))
+            .collect();
 
         Ok(TriSurfVertexVectors {
             kind,
