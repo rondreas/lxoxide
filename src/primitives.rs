@@ -28,6 +28,22 @@ impl BinRead for VX {
     }
 }
 
+impl BinWrite for VX {
+    type Args<'a> = ();
+
+    fn write_options<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        _endian: Endian,
+        (): Self::Args<'_>,
+    ) -> BinResult<()> {
+        match self {
+            Self::U2(vx) => Ok((*vx).write_be(writer)?),
+            Self::U4(vx) => Ok((0xff00_0000 | (0x00ff_ffff & *vx)).write_be(writer)?),
+        }
+    }
+}
+
 impl ReadEndian for VX {
     const ENDIAN: EndianKind = EndianKind::Endian(binrw::Endian::Big);
 }
@@ -214,7 +230,6 @@ impl BinRead for ChannelValue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use binrw::BinRead;
     use std::io::Cursor;
 
     #[test]
@@ -225,13 +240,20 @@ mod tests {
     }
 
     #[test]
-    fn test_vx() {
-        let mut reader = Cursor::new(b"\xfe\xff\xff\xff");
-        let vx = VX::read(&mut reader).unwrap();
-        assert_eq!(vx, VX::U2(65_279));
+    fn variable_index() {
+        let mut reader = Cursor::new([0xfe, 0xff, 0xff, 0x00, 0xff, 0x00]);
 
-        let mut reader = Cursor::new(b"\xff\x00\xff\x00");
-        let vx = VX::read(&mut reader).unwrap();
-        assert_eq!(vx, VX::U4(65_280));
+        let small_index = VX::read_be(&mut reader).unwrap();
+        let big_index = VX::read_be(&mut reader).unwrap();
+
+        assert_eq!(small_index, VX::U2(65_279));
+        assert_eq!(big_index, VX::U4(65_280));
+
+        let mut writer = Cursor::new(vec![]);
+
+        small_index.write_be(&mut writer).unwrap();
+        big_index.write_be(&mut writer).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 }
