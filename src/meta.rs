@@ -4,12 +4,14 @@ use binrw::{BinRead, BinResult, BinWrite, NullString};
 use std::fmt;
 use std::io::{Read, Seek};
 
-#[derive(BinRead, Debug, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq)]
 #[br(big)]
+#[bw(big)]
 pub struct Version {
     pub major: u32,
     pub minor: u32,
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub application: NullString,
 }
 
@@ -299,6 +301,12 @@ mod tests {
         );
 
         assert_eq!(reader.stream_position().unwrap(), 42);
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&version).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
