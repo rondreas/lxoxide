@@ -44,8 +44,9 @@ impl fmt::Display for ApplicationVersion {
     }
 }
 
-#[derive(BinRead, Debug, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq)]
 #[br(big, repr = u32)]
+#[bw(big, repr = u32)]
 pub enum Encoding {
     Default = 0,
     Ansi = 1,
@@ -354,6 +355,12 @@ mod tests {
 
         let encoding = Encoding::read_be(&mut reader).unwrap();
         assert_eq!(encoding, Encoding::Utf8);
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&encoding).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
