@@ -21,14 +21,16 @@ impl fmt::Display for Version {
     }
 }
 
-#[derive(BinRead, Debug, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq)]
 #[br(big)]
+#[bw(big)]
 pub struct ApplicationVersion {
     pub base: u32,
     pub major: u32,
     pub minor: u32,
     pub build: u32,
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub application: NullString,
 }
 
@@ -333,6 +335,12 @@ mod tests {
         );
 
         assert_eq!(reader.stream_position().unwrap(), 36);
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&application_version).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
