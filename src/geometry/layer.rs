@@ -226,6 +226,16 @@ impl BinRead for DiscontinousVertexMap {
 pub struct Polygon {
     pub vertex_count: u16,
     pub vertex_index: Vec<VX>,
+    pub flags: u32,
+}
+
+bitflags! {
+    #[derive(Debug, PartialEq, Eq)]
+    pub struct CurveHandle: u8 {
+        const Start     = 0x1;
+        const End       = 0x2;
+        const Closed    = 0x3;
+    }
 }
 
 impl BinRead for Polygon {
@@ -236,26 +246,11 @@ impl BinRead for Polygon {
         _endian: Endian,
         kind: Self::Args<'_>,
     ) -> BinResult<Self> {
-        let raw = u16::read_be(reader)?;
-        let vertex_count = if kind == "CURV" || kind == "BCRV" {
-            // Bits 15-12: additional high count bits (extends to 14-bit max)
-            // Bits 11-10: continuity toggle flags — 0 means handle IS present
-            // Bits  9- 0: base vertex count
-            let high = (raw >> 12) & 0x000F;
-            let low = raw & 0x03FF;
-            let base = (high << 10) | low;
-
-            // Each flag bit that is 0 means one continuity handle vertex is
-            // stored in the VX list and must be read (0, 1, or 2 extra).
-            let flags = (raw >> 10) & 0b11;
-            let extra = (!flags & 0b01)         // bit 10 clear → start handle present
-                      + ((!flags >> 1) & 0b01); // bit 11 clear → end handle present
-
-            base + extra
-        } else {
-            // Standard polygons: top 6 bits are flags, bottom 10 are count.
-            raw & 0x03FF
-        };
+        let mut flags = 0;
+        let vertex_count = u16::read_be(reader)?;
+        if kind == "HCRV" || kind == "BCRV" || kind == "BSPL" {
+            flags = u32::read_be(reader)?;
+        }
         let mut vertex_index = Vec::with_capacity(vertex_count as usize);
         for _ in 0..vertex_count {
             vertex_index.push(VX::read_be(reader)?);
@@ -263,6 +258,7 @@ impl BinRead for Polygon {
         Ok(Polygon {
             vertex_count,
             vertex_index,
+            flags,
         })
     }
 }
@@ -503,7 +499,7 @@ mod tests {
 
         assert_eq!(pols.kind, "BCRV");
         assert_eq!(pols.polygons.len(), 1);
-        assert_eq!(pols.polygons[0].vertex_count, 48);
+        assert_eq!(pols.polygons[0].vertex_count, 46);
         assert_eq!(
             reader.stream_position().unwrap(),
             (header.size + 8).into(),
@@ -583,4 +579,130 @@ mod tests {
             "Failed to read the whole chunk"
         );
     }
+
+    #[test]
+    fn pols_face_triangle() {
+        // Created by making a flat cylinder, with 3 sides.
+        let mut reader = Cursor::new([
+            0x50, 0x4f, 0x4c, 0x53, 0x00, 0x00, 0x00, 0x0c, 0x46, 0x41, 0x43, 0x45, 0x00, 0x03,
+            0x00, 0x00, 0x00, 0x02, 0x00, 0x01,
+        ]);
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        let pols = PolygonList::read_be_args(&mut reader, header.size).unwrap();
+
+        assert_eq!(pols.kind, "FACE");
+        assert_eq!(pols.polygons.len(), 1);
+        assert_eq!(pols.polygons[0].vertex_count, 3);
+        assert_eq!(
+            pols.polygons[0].vertex_index,
+            vec![VX::U2(0), VX::U2(2), VX::U2(1)]
+        );
+
+        assert_eq!(
+            reader.stream_position().unwrap(),
+            (header.size + 8).into(),
+            "Failed to read the whole chunk"
+        );
+    }
+
+    #[test]
+    fn pols_face_quad() {
+        // Created by making a flat cube,
+        let mut reader = Cursor::new([
+            0x50, 0x4f, 0x4c, 0x53, 0x00, 0x00, 0x00, 0x0e, 0x46, 0x41, 0x43, 0x45, 0x00, 0x04,
+            0x00, 0x00, 0x00, 0x03, 0x00, 0x02, 0x00, 0x01,
+        ]);
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        let pols = PolygonList::read_be_args(&mut reader, header.size).unwrap();
+
+        assert_eq!(pols.kind, "FACE");
+        assert_eq!(pols.polygons.len(), 1);
+        assert_eq!(pols.polygons[0].vertex_count, 4);
+        assert_eq!(
+            pols.polygons[0].vertex_index,
+            vec![VX::U2(0), VX::U2(3), VX::U2(2), VX::U2(1)]
+        );
+
+        assert_eq!(
+            reader.stream_position().unwrap(),
+            (header.size + 8).into(),
+            "Failed to read the whole chunk"
+        );
+    }
+
+    #[test]
+    fn pols_curve_start() {
+        // This is a POLS chunks, which represents a curve in Modo with four points.
+        // Where we've set Start = True
+        let mut reader = Cursor::new([
+            0x50, 0x4f, 0x4c, 0x53, 0x00, 0x00, 0x00, 0x12, 0x48, 0x43, 0x52, 0x56, 0x00, 0x04,
+            0x00, 0x00, 0x1a, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03,
+        ]);
+
+        let header = ChunkHeader::read_be(&mut reader).expect("Chunk header id POLS with size 18");
+        let pols = PolygonList::read_be_args(&mut reader, header.size).unwrap();
+
+        assert_eq!(pols.kind, "HCRV");
+        assert_eq!(pols.polygons.len(), 1);
+        assert_eq!(pols.polygons[0].flags as u8, CurveHandle::Start.bits());
+
+        // Check that we have read all bytes
+        assert_eq!(
+            reader.stream_position().unwrap(),
+            (header.size + 8).into(),
+            "Failed to read the whole chunk"
+        );
+    }
+
+    #[test]
+    fn pols_curve_end() {
+        // This is a POLS chunks, which represents a curve in Modo with four points.
+        // Where we've set End = True
+        let mut reader = Cursor::new([
+            0x50, 0x4f, 0x4c, 0x53, 0x00, 0x00, 0x00, 0x12, 0x48, 0x43, 0x52, 0x56, 0x00, 0x04,
+            0x00, 0x00, 0x1a, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03,
+        ]);
+
+        let header = ChunkHeader::read_be(&mut reader).expect("Chunk header id POLS with size 18");
+        let pols = PolygonList::read_be_args(&mut reader, header.size).unwrap();
+
+        assert_eq!(pols.kind, "HCRV");
+        assert_eq!(pols.polygons.len(), 1);
+        assert_eq!(pols.polygons[0].flags as u8, CurveHandle::End.bits());
+
+        // Check that we have read all bytes
+        assert_eq!(
+            reader.stream_position().unwrap(),
+            (header.size + 8).into(),
+            "Failed to read the whole chunk"
+        );
+    }
+
+    #[test]
+    fn pols_curve_closed() {
+        // This is a POLS chunks, which represents a curve in Modo with four points.
+        // Where we've set Closed = True
+        let mut reader = Cursor::new([
+            0x50, 0x4f, 0x4c, 0x53, 0x00, 0x00, 0x00, 0x18, 0x48, 0x43, 0x52, 0x56, 0x00, 0x07,
+            0x00, 0x00, 0x1a, 0x03, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03,
+            0x00, 0x00, 0x00, 0x01,
+        ]);
+
+        let header = ChunkHeader::read_be(&mut reader).expect("Chunk header id POLS with size 18");
+        let pols = PolygonList::read_be_args(&mut reader, header.size).unwrap();
+
+        assert_eq!(pols.kind, "HCRV");
+        assert_eq!(pols.polygons.len(), 1);
+        assert_eq!(pols.polygons[0].flags as u8, CurveHandle::Closed.bits());
+
+        // Check that we have read all bytes
+        assert_eq!(
+            reader.stream_position().unwrap(),
+            (header.size + 8).into(),
+            "Failed to read the whole chunk"
+        );
+    }
+
+    #[test]
+    fn curve_closed_filled() {}
 }
