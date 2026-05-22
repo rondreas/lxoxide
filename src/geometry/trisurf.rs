@@ -65,12 +65,22 @@ impl BinRead for TriSurfVertexVectors {
         let dimensions = u32::read_be(reader)?;
         let name = read_aligned_nullstring(reader)?;
 
-        let bytes_left = size - (reader.stream_position()? - start) as u32;
-        if !bytes_left.is_multiple_of(4) {
-            binrw::Error::Custom {
+        let current_pos = reader.stream_position()?;
+        let read_so_far = (current_pos - start) as u32;
+
+        if read_so_far > size {
+            return Err(binrw::Error::Custom {
                 pos: start,
                 err: Box::new(ParseError::InvalidSize),
-            };
+            });
+        }
+
+        let bytes_left = size - read_so_far;
+        if !bytes_left.is_multiple_of(4) {
+            return Err(binrw::Error::Custom {
+                pos: start,
+                err: Box::new(ParseError::InvalidSize),
+            });
         }
 
         let mut buf = vec![0u8; bytes_left as usize];
