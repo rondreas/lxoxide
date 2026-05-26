@@ -138,6 +138,9 @@ pub struct ActionGradient {
     pub envelope_index: VX,
     pub flags: u32,
     pub name: Option<NullString>,
+
+    pub kind0: Option<NullString>,
+    pub kind1: Option<NullString>,
 }
 
 impl BinRead for ActionGradient {
@@ -158,11 +161,23 @@ impl BinRead for ActionGradient {
             name = Some(read_aligned_nullstring(reader)?);
         }
 
+        let mut kind0 = None;
+        if reader.stream_position()? - start < size as u64 {
+            kind0 = Some(read_aligned_nullstring(reader)?);
+        }
+
+        let mut kind1 = None;
+        if reader.stream_position()? - start < size as u64 {
+            kind1 = Some(read_aligned_nullstring(reader)?);
+        }
+
         Ok(ActionGradient {
             channel_index,
             envelope_index,
             flags,
             name,
+            kind0,
+            kind1,
         })
     }
 }

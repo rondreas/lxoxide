@@ -52,13 +52,56 @@ pub struct Link {
     pub index: u32,
 }
 
-#[derive(BinRead, Debug, Clone, PartialEq)]
-#[br(big)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Gradient {
-    #[br(align_after = 2)]
     pub name: NullString,
     pub envelope_index: VX,
-    pub flags: u32,
+    pub flags: EnvelopeInterpolationFlag,
+
+    pub kind0: Option<NullString>,
+
+    pub kind1: Option<NullString>,
+}
+
+impl BinRead for Gradient {
+    type Args<'a> = u16;
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        _endian: binrw::Endian,
+        size: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let start = reader.stream_position()?;
+        let name = read_aligned_nullstring(reader)?;
+        let envelope_index = VX::read_be(reader)?;
+        let flags = EnvelopeInterpolationFlag::read_be(reader)?;
+
+        let mut kind0 = None;
+        if reader.stream_position()? - start < size as u64 {
+            kind0 = Some(read_aligned_nullstring(reader)?);
+        }
+
+        let mut kind1 = None;
+        if reader.stream_position()? - start < size as u64 {
+            kind1 = Some(read_aligned_nullstring(reader)?);
+        }
+
+        Ok(Gradient {
+            name,
+            envelope_index,
+            flags,
+            kind0,
+            kind1,
+        })
+    }
+}
+
+#[derive(BinRead, Debug, Clone, PartialEq)]
+#[br(repr=u32)]
+pub enum EnvelopeInterpolationFlag {
+    Curve,
+    Linear,
+    Stepped,
 }
 
 #[derive(BinRead, Debug, Clone, PartialEq)]
@@ -308,7 +351,9 @@ impl BinRead for Item {
                 "UCHN" => user_channels.push(UserChannel::read_be(reader)?),
                 "CLNK" => channel_links.push(ChannelLink::read_be(reader)?),
                 "LINK" => links.push(Link::read(reader)?),
-                "GRAD" => channels.push(Channels::GRAD(Gradient::read_be(reader)?)),
+                "GRAD" => {
+                    channels.push(Channels::GRAD(Gradient::read_be_args(reader, header.size)?))
+                }
                 "CHNL" => channels.push(Channels::CHNL(ScalarChannel::read_be(reader)?)),
                 "CHNV" => channels.push(Channels::CHNV(VectorChannel::read_be(reader)?)),
                 "CHNS" => channels.push(Channels::CHNS(StringChannel::read_be(reader)?)),
@@ -415,6 +460,47 @@ mod tests {
 
         assert_eq!(chan.index, VX::U2(224));
         assert_eq!(chan.value, ChannelValue::Integer(1));
+    }
+
+    #[test]
+    fn gradient_channel() {
+        let mut reader = Cursor::new([
+            0x47, 0x52, 0x41, 0x44, 0x00, 0x0e, 0x72, 0x61, 0x64, 0x47, 0x72, 0x61, 0x64, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let grad = Gradient::read_be(&mut reader).unwrap();
+
+        assert_eq!(grad.name, "radGrad".into());
+        assert_eq!(grad.envelope_index, VX::U2(0));
+        assert_eq!(grad.flags, EnvelopeInterpolationFlag::Curve);
+
+        assert_eq!(grad.kind0, None);
+        assert_eq!(grad.kind1, None);
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+    }
+
+    #[test]
+    fn gradient_channel_with_extra_strings() {
+        let mut reader = Cursor::new([
+            0x47, 0x52, 0x41, 0x44, 0x00, 0x1a, 0x72, 0x61, 0x64, 0x47, 0x72, 0x61, 0x64, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x66, 0x6c, 0x6f, 0x61, 0x74, 0x00, 0x66, 0x6c,
+            0x6f, 0x61, 0x74, 0x00,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let grad = Gradient::read_be_args(&mut reader, header.size).unwrap();
+
+        assert_eq!(grad.name, "radGrad".into());
+        assert_eq!(grad.envelope_index, VX::U2(0));
+        assert_eq!(grad.flags, EnvelopeInterpolationFlag::Curve);
+
+        assert_eq!(grad.kind0, Some(NullString("float".into())));
+        assert_eq!(grad.kind1, Some(NullString("float".into())));
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
     }
 
     #[test]
