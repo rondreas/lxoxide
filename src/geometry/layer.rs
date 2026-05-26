@@ -68,6 +68,14 @@ pub struct LayerGeometry {
     pub polygons: BTreeMap<ID4, PolygonGroup>,
 }
 
+#[derive(BinRead, Debug, PartialEq, Eq)]
+#[br(repr=u16)]
+pub enum Smoothing {
+    AlwaysEnabled,
+    DisabledWithDeformers,
+    AlwaysDisabled,
+}
+
 #[derive(BinRead, Debug)]
 #[br(big)]
 pub struct Layer {
@@ -86,7 +94,11 @@ pub struct Layer {
     pub spline_patch_level: u16,
     pub future_expansion: [u16; 3],
     pub boundary_rules: BoundaryRules,
-    pub unknown: [u16; 6],
+    pub catmull_render_level: u16,
+    pub catmull_subdivision_level: u16,
+    pub subdivision_render_level: u16,
+    pub unknown: [u16; 2],
+    pub smoothing: Smoothing,
 
     #[br(if(flags.contains(LayerFlag::Multiresolution)))]
     pub multires: Option<Multiresolution>,
