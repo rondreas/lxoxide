@@ -16,7 +16,7 @@ pub use primitives::{ChunkHeader, ID4};
 use animation::{Action, Envelope};
 use geometry::layer::{
     BoundingBox, DiscontinousVertexMap, Layer, Points, PolygonGroup, PolygonList,
-    PolygonTagMapping, VertexMap, VertexMapParameter,
+    PolygonTagMapping, VertexMap, VertexEdgeMap, VertexMapParameter,
 };
 use geometry::trisurf::{
     TriSurfDataHeader, TriSurfGroupHeader, TriSurfTags, TriSurfTriangles, TriSurfVertexVectors,
@@ -271,6 +271,14 @@ impl LuxologyFile {
                         .geometry
                         .vertex_maps
                         .push(VertexMap::read_be_args(&mut reader, chunk_header.size)?);
+                }
+                "VMED" => {
+                    layers
+                        .last_mut()
+                        .ok_or(ParseError::MissingLayer)?
+                        .geometry
+                        .vertex_edge_maps
+                        .push(VertexEdgeMap::read_be_args(&mut reader, chunk_header.size)?);
                 }
                 "POLS" => {
                     let polygons = PolygonList::read_be_args(&mut reader, chunk_header.size)?;

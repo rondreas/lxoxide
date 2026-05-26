@@ -64,6 +64,7 @@ pub struct LayerGeometry {
     pub bounds: Option<BoundingBox>,
     pub vertex_map_parameters: Vec<VertexMapParameter>,
     pub vertex_maps: Vec<VertexMap>,
+    pub vertex_edge_maps: Vec<VertexEdgeMap>,
     pub polygons: BTreeMap<ID4, PolygonGroup>,
 }
 
@@ -185,7 +186,50 @@ impl BinRead for VertexMap {
 }
 
 #[derive(Debug)]
+pub struct VertexEdgeMap {
+    pub kind: ID4,
+    pub dimension: u16,
+    pub name: NullString,
+    pub data: Vec<(VX, VX, Vec<f32>)>,
+}
+
+impl BinRead for VertexEdgeMap {
+    type Args<'a> = u32;
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        _endian: Endian,
+        size: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let start = reader.stream_position()?;
+        let kind = ID4::read_be(reader)?;
+        let dimension = u16::read_be(reader)?;
+        let name = read_aligned_nullstring(reader)?;
+
+        let mut data = vec![];
+        while reader.stream_position()? - start < size as u64 {
+            let vertex_a = VX::read_be(reader)?;
+            let vertex_b = VX::read_be(reader)?;
+            let mut values: Vec<f32> = vec![0.0; dimension as usize];
+            for value in values.iter_mut() {
+                *value = f32::read_be(reader)?;
+            }
+
+            data.push((vertex_a, vertex_b, values));
+        }
+
+        Ok(VertexEdgeMap {
+            kind,
+            dimension,
+            name,
+            data,
+        })
+    }
+}
+
+#[derive(Debug)]
 pub struct DiscontinousVertexMap {
+
     pub kind: ID4,
     pub dimension: u16,
     pub name: NullString,
