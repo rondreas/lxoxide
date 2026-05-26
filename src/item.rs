@@ -28,19 +28,19 @@ pub struct Reference {
 #[br(big)]
 pub struct Package {
     #[br(align_after = 2)]
-    name: NullString,
-    size: u32,
+    pub name: NullString,
+    pub size: u32,
     #[br(count = size)]
-    data: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 #[derive(BinRead, Debug, Clone, PartialEq)]
 #[br(big)]
 pub struct Channel {
-    index: VX,
-    kind: u16,
+    pub index: VX,
+    pub kind: u16,
     #[br(args(kind))]
-    value: ChannelValue,
+    pub value: ChannelValue,
 }
 
 #[derive(BinRead, Debug, Clone, PartialEq)]
