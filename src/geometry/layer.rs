@@ -97,7 +97,9 @@ pub struct Layer {
     pub catmull_render_level: u16,
     pub catmull_subdivision_level: u16,
     pub subdivision_render_level: u16,
-    pub unknown: [u16; 2],
+    #[br(map = |x: u16| x != 0)]
+    pub cache_normal_vectors: bool,
+    pub catmull_current_level: u16,
     pub smoothing: Smoothing,
 
     #[br(if(flags.contains(LayerFlag::Multiresolution)))]
