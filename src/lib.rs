@@ -16,7 +16,7 @@ pub use primitives::{ChunkHeader, ID4};
 use animation::{Action, Envelope};
 use geometry::layer::{
     BoundingBox, DiscontinousVertexMap, Layer, Points, PolygonGroup, PolygonList,
-    PolygonTagMapping, VertexMap, VertexEdgeMap, VertexMapParameter,
+    PolygonTagMapping, VertexEdgeMap, VertexMap, VertexMapParameter,
 };
 use geometry::trisurf::{
     TriSurfDataHeader, TriSurfGroupHeader, TriSurfTags, TriSurfTriangles, TriSurfVertexVectors,

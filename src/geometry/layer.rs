@@ -229,7 +229,6 @@ impl BinRead for VertexEdgeMap {
 
 #[derive(Debug)]
 pub struct DiscontinousVertexMap {
-
     pub kind: ID4,
     pub dimension: u16,
     pub name: NullString,

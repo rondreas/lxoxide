@@ -1,14 +1,12 @@
 use crate::primitives::{ChannelValue, SubChunkHeader, VX};
 use crate::utils::read_aligned_nullstring;
 use binrw::{BinRead, BinResult, NullString};
+use bitflags::bitflags;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{Read, Seek};
 
-// todo: many subchunks here have a fixed size, so _size should be replace with some method to
-// 'skip' N bytes instead so we don't have a field for this in our structs. Maybe pad_before?
-
-#[derive(BinRead, Debug)]
+#[derive(BinRead, Debug, PartialEq, Eq)]
 #[br(big, repr=u32)]
 pub enum EnvelopeKind {
     Float,
@@ -24,30 +22,101 @@ impl fmt::Display for EnvelopeKind {
     }
 }
 
-#[derive(BinRead, Debug)]
+bitflags! {
+    #[derive(Debug, PartialEq, Eq)]
+    pub struct Slope: u16 {
+        const Direct        = 0b0000_0000;
+        const Automatic     = 0b0000_0001;
+        const LinearIn      = 0b0000_0010;
+        const LinearOut     = 0b0000_0100;
+        const Flat          = 0b0000_1000;
+        const AutoFlat      = 0b0001_0000;
+        const Stepped       = 0b0010_0000;
+        const SmoothFlat    = 0b0100_0000;
+    }
+}
+
+#[derive(BinRead, Debug, PartialEq, Eq)]
+#[br(big, repr=u16)]
+pub enum Weight {
+    Manual,
+    Automatic,
+}
+
+#[derive(BinRead, Debug, PartialEq)]
 #[br(big, magic = b"TANI")]
 pub struct TangentIn {
     _size: u16,
-    pub slope_type: u16,
-    pub weight_type: u16,
+    #[br(map = |x: u16| Slope::from_bits_retain(x))]
+    pub slope_type: Slope,
+    pub weight_type: Weight,
     pub weight: f32,
     pub slope: f32,
     pub value: f32,
 }
 
-#[derive(BinRead, Debug)]
+impl TangentIn {
+    pub fn new(
+        slope_type: Slope,
+        weight_type: Weight,
+        weight: f32,
+        slope: f32,
+        value: f32,
+    ) -> TangentIn {
+        TangentIn {
+            _size: 0x10,
+            slope_type,
+            weight_type,
+            weight,
+            slope,
+            value,
+        }
+    }
+}
+
+#[derive(BinRead, Debug, PartialEq)]
 #[br(big, magic = b"TANO")]
 pub struct TangentOut {
     _size: u16,
-    pub breaks: u32,
-    pub slope_type: u16,
-    pub weight_type: u16,
+    pub breaks: Break,
+    #[br(map = |x: u16| Slope::from_bits_retain(x))]
+    pub slope_type: Slope,
+    pub weight_type: Weight,
     pub weight: f32,
     pub slope: f32,
     pub value: f32,
 }
 
-#[derive(BinRead, Debug)]
+impl TangentOut {
+    pub fn new(
+        breaks: Break,
+        slope_type: Slope,
+        weight_type: Weight,
+        weight: f32,
+        slope: f32,
+        value: f32,
+    ) -> TangentOut {
+        TangentOut {
+            _size: 0x14,
+            breaks,
+            slope_type,
+            weight_type,
+            weight,
+            slope,
+            value,
+        }
+    }
+}
+
+#[derive(BinRead, Debug, PartialEq, Eq)]
+#[br(big, repr=u32)]
+pub enum Break {
+    Value,
+    Slope,
+    Weight,
+}
+
+#[derive(BinRead, Debug, PartialEq, Eq)]
 #[br(big, repr=u16)]
 pub enum Behaviour {
     Reset,
@@ -73,7 +142,7 @@ pub struct Post {
     pub behaviour: Behaviour,
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, Debug, PartialEq)]
 #[br(big, magic = b"KEY ")]
 pub struct Key {
     _size: u16,
@@ -81,6 +150,20 @@ pub struct Key {
     pub value: f32,
 }
 
+impl Key {
+    pub fn new(time: f32, value: f32) -> Key {
+        Key {
+            _size: 8,
+            time,
+            value,
+        }
+    }
+}
+
+///
+/// The flags sub-sub-chunk contains client-specific flags for the keyframe. These are deprecated,
+/// and are not used in any form in any version of modo. Any FLAG chunk found can simply be ignored.
+///
 #[derive(BinRead, Debug)]
 #[br(big, magic = b"FLAG")]
 pub struct Flag {
@@ -88,17 +171,29 @@ pub struct Flag {
     pub flag: u32,
 }
 
+///
+/// # Envelope Chunk
+///
+/// The ENVL chunk describes an envelope applied to an item. In modo, envelopes define the keys of 
+/// gradients and for normal keyframed animation. Note that this is not the same as the LWO2 
+/// envelope chunk. The envelope contains three sub-chunks representing the spline, TANI, TANO
+/// and KEY, as well as the behavior chunks PRE and POST.
+///
+/// The spline type used in modo is a variation on the bezier spline. The specific implementation
+/// is not currently documented, but it should be close enough to standard bezier curves for you to
+/// use that at the moment.
+///
 #[derive(BinRead, Debug)]
 #[br(big)]
 pub struct Envelope {
     pub index: VX,
     pub kind: EnvelopeKind,
-    pub pre_behaviour: Pre,
-    pub post_behaviour: Post,
+    pub pre: Pre,
+    pub post: Post,
     pub key: Key,
     pub tangent_in: TangentIn,
     pub tangent_out: TangentOut,
-    pub flag: Flag, // note: deprecated.
+    pub flag: Flag,
 }
 
 // Breaking with how other chunks have been done. I've made the fields more ergonomic I think.
@@ -289,21 +384,41 @@ mod tests {
     #[test]
     fn test_parsing_envelope() {
         let mut reader = Cursor::new([
-            0x45, 0x4e, 0x56, 0x4c, 0x00, 0x00, 0x00, 0x5e, // header
-            0x00, 0x02, // variable sized index,
-            0x00, 0x00, 0x00, 0x00, 0x50, 0x52, 0x45, 0x20, 0x00, 0x02, 0x00,
-            0x01, // PRE 2 bytes in size, 1 in value
-            0x50, 0x4f, 0x53, 0x54, 0x00, 0x02, 0x00, 0x01, // POST, same as above.
-            0x4b, 0x45, 0x59, 0x20, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00,
-            0x54, 0x41, 0x4e, 0x49, 0x00, 0x10, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00, 0x54, 0x41, 0x4e, 0x4f, 0x00, 0x14,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46, 0x4c, 0x41, 0x47, 0x00, 0x04, 0x00, 0x00,
-            0x0f, 0x00,
+            0x45, 0x4e, 0x56, 0x4c, 0x00, 0x00, 0x00, 0x5e, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
+            0x50, 0x52, 0x45, 0x20, 0x00, 0x02, 0x00, 0x01, 0x50, 0x4f, 0x53, 0x54, 0x00, 0x02,
+            0x00, 0x01, 0x4b, 0x45, 0x59, 0x20, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80,
+            0x00, 0x00, 0x54, 0x41, 0x4e, 0x49, 0x00, 0x10, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00, 0x54, 0x41, 0x4e, 0x4f,
+            0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46, 0x4c, 0x41, 0x47, 0x00, 0x04,
+            0x00, 0x00, 0x0f, 0x00,
         ]);
 
-        let _ = ChunkHeader::read_be(&mut reader).unwrap();
-        let _envelope = Envelope::read_be(&mut reader).unwrap();
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        let envelope = Envelope::read_be(&mut reader).unwrap();
+
+        assert_eq!(envelope.index, VX::U2(2));
+        assert_eq!(envelope.kind, EnvelopeKind::Float);
+        assert_eq!(envelope.pre.behaviour, Behaviour::Constant);
+        assert_eq!(envelope.post.behaviour, Behaviour::Constant);
+        assert_eq!(envelope.key, Key::new(0.0, 1.0));
+        assert_eq!(
+            envelope.tangent_in,
+            TangentIn::new(Slope::SmoothFlat, Weight::Manual, 0.0, 0.0, 1.0)
+        );
+        assert_eq!(
+            envelope.tangent_out,
+            TangentOut::new(
+                Break::Value,
+                Slope::SmoothFlat,
+                Weight::Manual,
+                0.0,
+                0.0,
+                0.0
+            )
+        );
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 8).into());
     }
 
     #[test]
