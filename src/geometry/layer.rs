@@ -4,7 +4,6 @@ use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{BinRead, BinResult, Endian, NullString};
 use bitflags::bitflags;
 use std::collections::BTreeMap;
-use std::fmt;
 use std::io::{Read, Seek};
 use std::ops::Deref;
 
@@ -107,15 +106,6 @@ pub struct Layer {
 
     #[br(ignore)]
     pub geometry: LayerGeometry,
-}
-
-impl fmt::Display for Layer {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.name.is_empty() {
-            let _ = write!(f, "{}", self.index);
-        }
-        write!(f, "{}", self.name)
-    }
 }
 
 #[derive(BinRead, Debug)]
