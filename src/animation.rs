@@ -1,13 +1,14 @@
 use crate::primitives::{ChannelValue, SubChunkHeader, VX};
 use crate::utils::read_aligned_nullstring;
-use binrw::{BinRead, BinResult, NullString};
+use binrw::{BinRead, BinResult, BinWrite, NullString};
 use bitflags::bitflags;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{Read, Seek};
 
-#[derive(BinRead, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[br(big, repr=u32)]
+#[bw(big, repr=u32)]
 pub enum EnvelopeKind {
     Float,
     Integer,
@@ -25,29 +26,33 @@ impl fmt::Display for EnvelopeKind {
 bitflags! {
     #[derive(Debug, PartialEq, Eq)]
     pub struct Slope: u16 {
-        const Direct        = 0b0000_0000;
-        const Automatic     = 0b0000_0001;
-        const LinearIn      = 0b0000_0010;
-        const LinearOut     = 0b0000_0100;
-        const Flat          = 0b0000_1000;
-        const AutoFlat      = 0b0001_0000;
-        const Stepped       = 0b0010_0000;
-        const SmoothFlat    = 0b0100_0000;
+            const Direct        = 0b0000_0000;
+            const Automatic     = 0b0000_0001;
+            const LinearIn      = 0b0000_0010;
+            const LinearOut     = 0b0000_0100;
+            const Flat          = 0b0000_1000;
+            const AutoFlat      = 0b0001_0000;
+            const Stepped       = 0b0010_0000;
+            const SmoothFlat    = 0b0100_0000;
     }
 }
 
-#[derive(BinRead, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[br(big, repr=u16)]
+#[bw(big, repr=u16)]
 pub enum Weight {
     Manual,
     Automatic,
 }
 
-#[derive(BinRead, Debug, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq)]
 #[br(big, magic = b"TANI")]
+#[bw(big, magic = b"TANI")]
 pub struct TangentIn {
+    #[bw(map = |_: &u16| 0x10u16)]
     _size: u16,
     #[br(map = |x: u16| Slope::from_bits_retain(x))]
+    #[bw(map = |x: &Slope| x.bits())]
     pub slope_type: Slope,
     pub weight_type: Weight,
     pub weight: f32,
@@ -74,12 +79,15 @@ impl TangentIn {
     }
 }
 
-#[derive(BinRead, Debug, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq)]
 #[br(big, magic = b"TANO")]
+#[bw(big, magic = b"TANO")]
 pub struct TangentOut {
+    #[bw(map = |_: &u16| 0x14u16)]
     _size: u16,
     pub breaks: Break,
     #[br(map = |x: u16| Slope::from_bits_retain(x))]
+    #[bw(map = |x: &Slope| x.bits())]
     pub slope_type: Slope,
     pub weight_type: Weight,
     pub weight: f32,
@@ -108,16 +116,18 @@ impl TangentOut {
     }
 }
 
-#[derive(BinRead, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[br(big, repr=u32)]
+#[bw(big, repr=u32)]
 pub enum Break {
     Value,
     Slope,
     Weight,
 }
 
-#[derive(BinRead, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[br(big, repr=u16)]
+#[bw(big, repr=u16)]
 pub enum Behaviour {
     Reset,
     Constant,
@@ -128,23 +138,29 @@ pub enum Behaviour {
     None,
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
 #[br(big, magic = b"PRE ")]
+#[bw(big, magic = b"PRE ")]
 pub struct Pre {
+    #[bw(map = |_: &u16| 2u16)]
     _size: u16,
     pub behaviour: Behaviour,
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
 #[br(big, magic = b"POST")]
+#[bw(big, magic = b"POST")]
 pub struct Post {
+    #[bw(map = |_: &u16| 2u16)]
     _size: u16,
     pub behaviour: Behaviour,
 }
 
-#[derive(BinRead, Debug, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq)]
 #[br(big, magic = b"KEY ")]
+#[bw(big, magic = b"KEY ")]
 pub struct Key {
+    #[bw(map = |_: &u16| 8u16)]
     _size: u16,
     pub time: f32,
     pub value: f32,
@@ -164,9 +180,11 @@ impl Key {
 /// The flags sub-sub-chunk contains client-specific flags for the keyframe. These are deprecated,
 /// and are not used in any form in any version of modo. Any FLAG chunk found can simply be ignored.
 ///
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
 #[br(big, magic = b"FLAG")]
+#[bw(big, magic = b"FLAG")]
 pub struct Flag {
+    #[bw(map = |_: &u16| 4u16)]
     _size: u16,
     pub flag: u32,
 }
@@ -174,8 +192,8 @@ pub struct Flag {
 ///
 /// # Envelope Chunk
 ///
-/// The ENVL chunk describes an envelope applied to an item. In modo, envelopes define the keys of 
-/// gradients and for normal keyframed animation. Note that this is not the same as the LWO2 
+/// The ENVL chunk describes an envelope applied to an item. In modo, envelopes define the keys of
+/// gradients and for normal keyframed animation. Note that this is not the same as the LWO2
 /// envelope chunk. The envelope contains three sub-chunks representing the spline, TANI, TANO
 /// and KEY, as well as the behavior chunks PRE and POST.
 ///
@@ -183,8 +201,9 @@ pub struct Flag {
 /// is not currently documented, but it should be close enough to standard bezier curves for you to
 /// use that at the moment.
 ///
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
+#[bw(big)]
 pub struct Envelope {
     pub index: VX,
     pub kind: EnvelopeKind,
@@ -379,6 +398,7 @@ impl BinRead for Action {
 mod tests {
     use super::*;
     use crate::ChunkHeader;
+    use binrw::BinWriterExt;
     use std::io::Cursor;
 
     #[test]
@@ -419,6 +439,12 @@ mod tests {
         );
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 8).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&envelope).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
