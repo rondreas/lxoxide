@@ -232,6 +232,40 @@ impl BinRead for ChannelValue {
     }
 }
 
+impl BinWrite for ChannelValue {
+    type Args<'a> = ();
+
+    fn write_options<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        _endian: Endian,
+        (): Self::Args<'_>,
+    ) -> BinResult<()> {
+        match self {
+            Self::Integer(value) => value.write_be(writer),
+            Self::Float(value) => value.write_be(writer),
+            Self::String(value) => {
+                value.write_be(writer)?;
+                if !writer.stream_position()?.is_multiple_of(2) {
+                    0u8.write_be(writer)?;
+                }
+                Ok(())
+            }
+            // this value is only used in legacy item subchunks CHNV and CHNL, reading is
+            // done through there. See read_channel_value in item.rs
+            Self::Data(value) => {
+                let size: u16 = value.len() as u16;
+                size.write_be(writer)?;
+                writer.write_all(value)?;
+                if !writer.stream_position()?.is_multiple_of(2) {
+                    0u8.write_be(writer)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,6 +292,39 @@ mod tests {
 
         small_index.write_be(&mut writer).unwrap();
         big_index.write_be(&mut writer).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
+    }
+
+    #[test]
+    fn channel_value_integer() {
+        let mut reader = Cursor::new([0x00, 0x00, 0x00, 0x2a]);
+        let value = ChannelValue::read_be_args(&mut reader, (1u16,)).unwrap();
+
+        let mut writer = Cursor::new(vec![]);
+        value.write_be(&mut writer).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
+    }
+
+    #[test]
+    fn channel_value_float() {
+        let mut reader = Cursor::new([0x3f, 0x80, 0x00, 0x00]);
+        let value = ChannelValue::read_be_args(&mut reader, (2u16,)).unwrap();
+
+        let mut writer = Cursor::new(vec![]);
+        value.write_be(&mut writer).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
+    }
+
+    #[test]
+    fn channel_value_string() {
+        let mut reader = Cursor::new(b"Hello world!\0\0");
+        let value = ChannelValue::read_be_args(&mut reader, (3u16,)).unwrap();
+
+        let mut writer = Cursor::new(vec![]);
+        value.write_be(&mut writer).unwrap();
 
         assert_eq!(writer.into_inner(), reader.into_inner());
     }
