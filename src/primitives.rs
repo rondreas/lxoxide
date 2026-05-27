@@ -212,6 +212,8 @@ impl BinRead for ChannelValue {
         _endian: binrw::Endian,
         flag: Self::Args<'_>,
     ) -> BinResult<Self> {
+        // 0x20 is Undefined Action, ie this channel is not animated? Or at least not present in
+        // actions
         match flag.0 & !0x20 {
             0x1 | 0x11 => Ok(ChannelValue::Integer(i32::read_be(reader)?)),
             0x2 | 0x12 => Ok(ChannelValue::Float(f32::read_be(reader)?)),

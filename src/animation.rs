@@ -466,13 +466,39 @@ mod tests {
     }
 
     #[test]
-    fn test_parsing_action_channel() {
-        let mut reader = Cursor::new([0x01, 0xa5, 0x00, 0x02, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00]);
+    fn float_action_channel() {
+        let mut reader = Cursor::new([
+            0x43, 0x48, 0x41, 0x4e, 0x00, 0x0a, 0x01, 0xa5, 0x00, 0x02, 0x00, 0x00, 0x3f, 0x80,
+            0x00, 0x00,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
         let channel = ActionChannel::read_be(&mut reader).unwrap();
+
         assert_eq!(channel.channel_index, VX::U2(421));
         assert_eq!(channel.kind, 2);
         assert_eq!(channel.envelope_index, VX::U2(0));
         assert_eq!(channel.variable, ChannelValue::Float(1.0));
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+    }
+
+    #[test]
+    fn string_action_channel() {
+        let mut reader = Cursor::new([
+            0x43, 0x48, 0x41, 0x4e, 0x00, 0x0e, 0x01, 0xd9, 0x00, 0x03, 0x00, 0x00, 0x66, 0x72,
+            0x61, 0x6d, 0x65, 0x73, 0x00, 0x00,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let chan = ActionChannel::read_be(&mut reader).unwrap();
+
+        assert_eq!(chan.channel_index, VX::U2(473));
+        assert_eq!(chan.kind, 3);
+        assert_eq!(chan.envelope_index, VX::U2(0));
+        assert_eq!(chan.variable, ChannelValue::String("frames".into()));
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
     }
 
     #[test]

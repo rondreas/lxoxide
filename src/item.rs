@@ -663,21 +663,100 @@ mod tests {
     }
 
     #[test]
-    fn test_channel() {
+    fn integer_channel() {
         let mut reader = Cursor::new([
-            0x43, 0x48, 0x41, 0x4e, 0x00, 0x08, // CHAN, 8 bytes in size
-            0x00, 0xe0, // 0x00e0 - index into Channel Names, inheritPos in this case
-            0x00, 0x21, // flag
-            0x00, 0x00, 0x00, 0x01, 0x43, 0x48, 0x41, 0x4e, 0x00, 0x08, 0x00, 0xe1, 0x00, 0x21,
-            0x00, 0x00, 0x00, 0x01, 0x43, 0x48, 0x41, 0x4e, 0x00, 0x08, 0x00, 0xe2, 0x00, 0x21,
-            0x00, 0x00, 0x00, 0x01,
+            0x43, 0x48, 0x41, 0x4e, 0x00, 0x08, 0x01, 0xe8, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
         ]);
 
-        let _ = SubChunkHeader::read_be(&mut reader).unwrap();
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let chan = Channel::read_be(&mut reader).unwrap();
+
+        assert_eq!(chan.index, VX::U2(488));
+        assert_eq!(chan.kind, 1);
+        assert_eq!(chan.value, ChannelValue::Integer(1));
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+    }
+
+    #[test]
+    fn integer_channel_undefined_action() {
+        let mut reader = Cursor::new([
+            0x43, 0x48, 0x41, 0x4e, 0x00, 0x08, 0x00, 0xe0, 0x00, 0x21, 0x00, 0x00, 0x00, 0x01,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
         let chan = Channel::read_be(&mut reader).unwrap();
 
         assert_eq!(chan.index, VX::U2(224));
+        assert_eq!(chan.kind, 0x21);
         assert_eq!(chan.value, ChannelValue::Integer(1));
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+    }
+
+    #[test]
+    fn float_channel() {
+        let mut reader = Cursor::new([
+            0x43, 0x48, 0x41, 0x4e, 0x00, 0x08, 0x00, 0xbd, 0x00, 0x02, 0x3f, 0x80, 0x00, 0x00,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let chan = Channel::read_be(&mut reader).unwrap();
+
+        assert_eq!(chan.index, VX::U2(189));
+        assert_eq!(chan.kind, 0x02);
+        assert_eq!(chan.value, ChannelValue::Float(1.0));
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+    }
+
+    #[test]
+    fn float_channel_undefined_action() {
+        let mut reader = Cursor::new([
+            0x43, 0x48, 0x41, 0x4e, 0x00, 0x08, 0x00, 0xee, 0x00, 0x22, 0x3f, 0x00, 0x00, 0x00,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let chan = Channel::read_be(&mut reader).unwrap();
+
+        assert_eq!(chan.index, VX::U2(238));
+        assert_eq!(chan.kind, 0x22);
+        assert_eq!(chan.value, ChannelValue::Float(0.5));
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+    }
+
+    #[test]
+    fn string_channel() {
+        let mut reader = Cursor::new([
+            0x43, 0x48, 0x41, 0x4e, 0x00, 0x08, 0x00, 0xa4, 0x00, 0x03, 0x6f, 0x66, 0x66, 0x00,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let chan = Channel::read_be(&mut reader).unwrap();
+
+        assert_eq!(chan.index, VX::U2(164));
+        assert_eq!(chan.kind, 0x03);
+        assert_eq!(chan.value, ChannelValue::String("off".into()));
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+    }
+
+    #[test]
+    fn string_channel_undefined_action() {
+        let mut reader = Cursor::new([
+            0x43, 0x48, 0x41, 0x4e, 0x00, 0x0c, 0x00, 0x47, 0x00, 0x23, 0x64, 0x65, 0x66, 0x61,
+            0x75, 0x6c, 0x74, 0x00,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let chan = Channel::read_be(&mut reader).unwrap();
+
+        assert_eq!(chan.index, VX::U2(71));
+        assert_eq!(chan.kind, 0x23);
+        assert_eq!(chan.value, ChannelValue::String("default".into()));
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
     }
 
     #[test]
