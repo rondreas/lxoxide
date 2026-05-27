@@ -99,6 +99,9 @@ pub enum ParseError {
     #[error("Bytes must be aligned to even number")]
     UnalignedBytes,
 
+    #[error("Invalid Channel Data Mask")]
+    InvalidChannelDataMask,
+
     #[error("Non supported Channel Vector data type")]
     ChannelVectorArray,
 

@@ -195,6 +195,8 @@ pub enum ChannelValue {
     Integer(i32),
     Float(f32),
     String(NullString),
+    // Legacy: Only found on CHNL and CHNV subchunks of ITEM
+    Data(Vec<u8>),
 }
 
 impl ReadEndian for ChannelValue {
