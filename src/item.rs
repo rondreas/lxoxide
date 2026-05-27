@@ -8,12 +8,36 @@ use binrw::{
 };
 use bitflags::bitflags;
 
-#[derive(BinRead, Debug, Clone, PartialEq)]
+///
+/// The LAYR sub-chunk contains layer-specific features for the item. This consists of a layer 
+/// index, flag bits, and a wireframe/element color.
+///
+#[derive(BinRead, BinWrite, Debug, Clone, PartialEq)]
 #[br(big)]
+#[bw(big)]
 pub struct Layer {
+    /// Index of the layer in the Layer List
     pub index: u32,
-    pub flags: u32,
+
+    /// Flags describing layer-specific properties
+    #[br(map = |x: u32| LayerVisibilityFlags::from_bits_retain(x))]
+    #[bw(map = |x: &LayerVisibilityFlags| x.bits())]
+    pub flags: LayerVisibilityFlags,
+
+    /// Four-element array representing the RGBA element (wireframe) color in the UI
     pub color: [u8; 4],
+}
+
+bitflags! {
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct LayerVisibilityFlags: u32 {
+        const Visible = 1;
+        const Hidden = 1 << 1;
+        const Foreground = 1 << 2;
+        const Background = 1 << 3;
+        const BoundingBox = 1 << 4;
+        const LinearSubdivUv = 1 << 7;
+    }
 }
 
 ///
@@ -488,6 +512,29 @@ mod tests {
     }
 
     #[test]
+    fn visible_background_layer() {
+        let mut reader = Cursor::new([
+            0x4c, 0x41, 0x59, 0x52, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
+            0x00, 0x09, 0xc8, 0xc8, 0xc8, 0xff
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let layer = Layer::read_be(&mut reader).unwrap();
+
+        assert_eq!(layer.index, 3);
+        assert_eq!(layer.flags, LayerVisibilityFlags::Visible | LayerVisibilityFlags::Background);
+        assert_eq!(layer.color, [200, 200, 200, 255]);
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&layer).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
+    }
+
+    #[test]
     fn channel_data_mask() {
         let mask = ChannelDataMask::from_bits_retain(2u16);
         assert!(mask.contains(ChannelDataMask::Float));
@@ -834,7 +881,7 @@ mod tests {
             item.layer,
             Some(Layer {
                 index: 0,
-                flags: 5,
+                flags: LayerVisibilityFlags::Visible | LayerVisibilityFlags::Foreground,
                 color: [200, 200, 200, 255]
             })
         );
