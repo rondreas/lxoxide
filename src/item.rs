@@ -9,7 +9,7 @@ use binrw::{
 use bitflags::bitflags;
 
 ///
-/// The LAYR sub-chunk contains layer-specific features for the item. This consists of a layer 
+/// The LAYR sub-chunk contains layer-specific features for the item. This consists of a layer
 /// index, flag bits, and a wireframe/element color.
 ///
 #[derive(BinRead, BinWrite, Debug, Clone, PartialEq)]
@@ -61,13 +61,21 @@ pub struct Reference {
     pub ident: NullString,
 }
 
-#[derive(BinRead, Debug, Clone, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, Clone, PartialEq)]
 #[br(big)]
+#[bw(big)]
 pub struct Package {
+    /// Package name that is used to add the package and load and save its state
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub name: NullString,
+
+    /// Package data size in bytes. Note that zero is a valid size
     pub size: u32,
-    #[br(count = size)]
+
+    /// The package's data stored as raw bytes
+    #[br(count = size, align_after = 2)]
+    #[bw(align_after = 2)]
     pub data: Vec<u8>,
 }
 
@@ -514,15 +522,18 @@ mod tests {
     #[test]
     fn visible_background_layer() {
         let mut reader = Cursor::new([
-            0x4c, 0x41, 0x59, 0x52, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
-            0x00, 0x09, 0xc8, 0xc8, 0xc8, 0xff
+            0x4c, 0x41, 0x59, 0x52, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x09,
+            0xc8, 0xc8, 0xc8, 0xff,
         ]);
 
         let header = SubChunkHeader::read_be(&mut reader).unwrap();
         let layer = Layer::read_be(&mut reader).unwrap();
 
         assert_eq!(layer.index, 3);
-        assert_eq!(layer.flags, LayerVisibilityFlags::Visible | LayerVisibilityFlags::Background);
+        assert_eq!(
+            layer.flags,
+            LayerVisibilityFlags::Visible | LayerVisibilityFlags::Background
+        );
         assert_eq!(layer.color, [200, 200, 200, 255]);
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
@@ -530,6 +541,29 @@ mod tests {
         let mut writer = Cursor::new(vec![]);
         writer.write_be(&header).unwrap();
         writer.write_be(&layer).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
+    }
+
+    #[test]
+    fn uistate_package() {
+        let mut reader = Cursor::new([
+            0x50, 0x41, 0x4b, 0x47, 0x00, 0x0c, 0x75, 0x69, 0x73, 0x74, 0x61, 0x74, 0x65, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let package = Package::read_be(&mut reader).unwrap();
+
+        assert_eq!(package.name, "uistate".into());
+        assert_eq!(package.size, 0);
+        assert!(package.data.is_empty());
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&package).unwrap();
 
         assert_eq!(writer.into_inner(), reader.into_inner());
     }
