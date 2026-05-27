@@ -236,12 +236,24 @@ pub struct ActionChannel {
     pub variable: ChannelValue,
 }
 
+///
+/// The CHNN sub-chunk contains information about a single channel's values for the preceding ITEM 
+/// sub-chunk. This is identical to the CHAN sub-chunk, but the channel is explicitly named
+/// instead of using a lookup into the CHNM chunk's array.
+///
 #[derive(BinRead, Debug)]
 pub struct ActionNamedChannel {
+    /// Name of the channel
     #[br(align_after = 2)]
-    pub channel_index: NullString,
+    pub name: NullString,
+
+    /// Type of the channel
     pub kind: u16,
+
+    /// Index of the envelope in the ENVL chunk's array, if applicable
     pub envelope_index: VX,
+
+    /// Value of the channel. The datatype is determined by the kind field
     #[br(args(kind))]
     pub variable: ChannelValue,
 }
