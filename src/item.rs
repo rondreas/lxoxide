@@ -3,7 +3,7 @@ use crate::primitives::{ChannelValue, ID4, SubChunkHeader, VX};
 use crate::utils::read_aligned_nullstring;
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{
-    BinRead, BinResult, Endian, NullString,
+    BinRead, BinResult, BinWrite, Endian, NullString,
     io::{Read, Seek},
 };
 use bitflags::bitflags;
@@ -16,13 +16,24 @@ pub struct Layer {
     pub color: [u8; 4],
 }
 
-// not to be confused with the Chunk XREF, this is a subchunk in item
-#[derive(BinRead, Debug)]
+///
+/// The XREF sub-chunk identifies an external reference item, and is only present if this item is indeed a reference itself.
+///
+#[derive(BinRead, BinWrite, Debug)]
+#[br(big)]
+#[bw(big)]
 pub struct Reference {
+    /// Index for the sub-scene in XREF chunk
     pub index: u32,
+
+    /// Filename containing the source scene being referenced
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub path: NullString,
+
+    /// Item identifier in the source scene
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub ident: NullString,
 }
 
@@ -448,7 +459,33 @@ impl BinRead for Item {
 mod tests {
     use super::*;
     use crate::ChunkHeader;
+    use binrw::BinWriterExt;
     use std::io::Cursor;
+
+    #[test]
+    fn reference() {
+        let mut reader = Cursor::new([
+            0x58, 0x52, 0x45, 0x46, 0x00, 0x2e, 0x00, 0x00, 0x00, 0x7, 0x43, 0x3a, 0x50, 0x72,
+            0x6f, 0x6a, 0x65, 0x63, 0x74, 0x2f, 0x50, 0x61, 0x74, 0x68, 0x2f, 0x54, 0x6f, 0x2f,
+            0x52, 0x65, 0x66, 0x65, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x2e, 0x6c, 0x78, 0x6f, 0x00,
+            0x63, 0x61, 0x6d, 0x65, 0x72, 0x61, 0x30, 0x30, 0x36, 0x00,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let xref = Reference::read_be(&mut reader).unwrap();
+
+        assert_eq!(xref.index, 7);
+        assert_eq!(xref.path, "C:Project/Path/To/Reference.lxo".into());
+        assert_eq!(xref.ident, "camera006".into());
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&xref).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
+    }
 
     #[test]
     fn channel_data_mask() {

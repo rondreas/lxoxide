@@ -159,8 +159,9 @@ pub struct ChunkHeader {
     pub size: u32,
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
+#[bw(big)]
 pub struct SubChunkHeader {
     pub kind: ID4,
     pub size: u16,
