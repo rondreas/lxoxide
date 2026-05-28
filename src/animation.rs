@@ -237,7 +237,7 @@ pub struct ActionChannel {
 }
 
 ///
-/// The CHNN sub-chunk contains information about a single channel's values for the preceding ITEM 
+/// The CHNN sub-chunk contains information about a single channel's values for the preceding ITEM
 /// sub-chunk. This is identical to the CHAN sub-chunk, but the channel is explicitly named
 /// instead of using a lookup into the CHNM chunk's array.
 ///
@@ -261,14 +261,28 @@ pub struct ActionNamedChannel {
     pub variable: ChannelValue,
 }
 
-#[derive(Debug)]
+///
+/// The GRAD sub-chunk contains information about a single gradient channel's values for the
+/// preceding ITEM sub-chunk.
+///
+#[derive(BinWrite, Debug)]
+#[bw(big)]
 pub struct ActionGradient {
+    /// Index of the channel's name in the CHNM chunk's array
     pub channel_index: VX,
+
+    /// Index of the envelope in the ENVL chunk's array, if applicable
     pub envelope_index: VX,
+
     pub flags: u32,
+
+    /// Optional channel name.
+    #[bw(align_after = 2)]
     pub name: Option<NullString>,
 
+    #[bw(align_after = 2)]
     pub kind0: Option<NullString>,
+    #[bw(align_after = 2)]
     pub kind1: Option<NullString>,
 }
 
@@ -463,7 +477,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parsing_action() {
+    fn scene_action() {
         let mut reader = Cursor::new([
             0x41, 0x43, 0x54, 0x4e, 0x00, 0x00, 0x00, 0x1a, 0x73, 0x63, 0x65, 0x6e, 0x65, 0x00,
             0x73, 0x63, 0x65, 0x6e, 0x65, 0x00, 0x00, 0x00, 0x00, 0x01, 0x50, 0x52, 0x4e, 0x54,
@@ -517,28 +531,80 @@ mod tests {
     }
 
     #[test]
-    fn test_parsing_action_gradient_channel_no_name() {
-        let mut reader = Cursor::new([0x01, 0x56, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00]);
-        let channel = ActionGradient::read_be(&mut reader).unwrap();
+    fn nameless_action_gradient() {
+        let mut reader = Cursor::new([
+            0x47, 0x52, 0x41, 0x44, 0x00, 0x08, 0x01, 0x56, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let channel = ActionGradient::read_be_args(&mut reader, header.size).unwrap();
+
         assert_eq!(channel.channel_index, VX::U2(342));
         assert_eq!(channel.envelope_index, VX::U2(8));
         assert_eq!(channel.flags, 0);
         assert_eq!(channel.name, None);
-        assert_eq!(reader.stream_position().unwrap(), 8);
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+
+        writer.write_be(&header).unwrap();
+        writer.write_be(&channel).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
-    fn test_parsing_action_gradient_channel_name() {
+    fn named_action_gradient() {
         let mut reader = Cursor::new([
             0x47, 0x52, 0x41, 0x44, 0x00, 0x16, 0x00, 0x00, 0x00, 0x3a, 0x00, 0x00, 0x00, 0x00,
             0x4d, 0x79, 0x47, 0x72, 0x61, 0x64, 0x69, 0x65, 0x6e, 0x74, 0x2e, 0x42, 0x00, 0x00,
         ]);
+
         let header = SubChunkHeader::read_be(&mut reader).unwrap();
         let channel = ActionGradient::read_be_args(&mut reader, header.size).unwrap();
+
         assert_eq!(channel.channel_index, VX::U2(0));
         assert_eq!(channel.envelope_index, VX::U2(58));
         assert_eq!(channel.flags, 0);
         assert_eq!(channel.name, Some("MyGradient.B".into()));
-        assert_eq!(reader.stream_position().unwrap(), 28);
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+
+        writer.write_be(&header).unwrap();
+        writer.write_be(&channel).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
+    }
+
+    #[test]
+    fn curve_item_action_gradient() {
+        let mut reader = Cursor::new([
+            0x47, 0x52, 0x41, 0x44, 0x00, 0x16, 0x01, 0x23, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x66, 0x6c, 0x6f, 0x61, 0x74, 0x00, 0x66, 0x6c, 0x6f, 0x61, 0x74, 0x00,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let channel = ActionGradient::read_be_args(&mut reader, header.size).unwrap();
+
+        assert_eq!(channel.channel_index, VX::U2(291));
+        assert_eq!(channel.envelope_index, VX::U2(20));
+        assert_eq!(channel.flags, 0);
+        assert_eq!(channel.name, Some("".into()));
+        // Items which points to a layer with curves seem to be the only ones that have the extra
+        // two NullString fields. And so far they have always contained "float"
+        assert_eq!(channel.kind0, Some("float".into()));
+        assert_eq!(channel.kind1, Some("float".into()));
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+
+        writer.write_be(&header).unwrap();
+        writer.write_be(&channel).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 }
