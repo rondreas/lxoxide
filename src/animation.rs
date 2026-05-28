@@ -241,10 +241,13 @@ pub struct ActionChannel {
 /// sub-chunk. This is identical to the CHAN sub-chunk, but the channel is explicitly named
 /// instead of using a lookup into the CHNM chunk's array.
 ///
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
+#[br(big)]
+#[bw(big)]
 pub struct ActionNamedChannel {
     /// Name of the channel
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub name: NullString,
 
     /// Type of the channel
