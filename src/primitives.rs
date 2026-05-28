@@ -1,4 +1,4 @@
-use crate::utils::read_aligned_nullstring;
+use crate::utils::{read_aligned_nullstring, write_aligned_nullstring};
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{BinRead, BinResult, BinWrite, Endian, NullString};
 use std::fmt;
@@ -244,13 +244,7 @@ impl BinWrite for ChannelValue {
         match self {
             Self::Integer(value) => value.write_be(writer),
             Self::Float(value) => value.write_be(writer),
-            Self::String(value) => {
-                value.write_be(writer)?;
-                if !writer.stream_position()?.is_multiple_of(2) {
-                    0u8.write_be(writer)?;
-                }
-                Ok(())
-            }
+            Self::String(value) => write_aligned_nullstring(writer, value),
             // this value is only used in legacy item subchunks CHNV and CHNL, reading is
             // done through there. See read_channel_value in item.rs
             Self::Data(value) => {

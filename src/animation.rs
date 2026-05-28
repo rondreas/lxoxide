@@ -1,10 +1,11 @@
-use crate::primitives::{ChannelValue, SubChunkHeader, VX};
-use crate::utils::read_aligned_nullstring;
+use crate::primitives::{ChannelValue, ID4, SubChunkHeader, VX};
+use crate::utils::{read_aligned_nullstring, write_aligned_nullstring};
 use binrw::{BinRead, BinResult, BinWrite, Endian, NullString};
 use bitflags::bitflags;
 use std::collections::BTreeMap;
 use std::fmt;
-use std::io::{Read, Seek, Write};
+use std::io::{Cursor, Read, Seek, Write};
+use std::str::FromStr;
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[br(big, repr=u32)]
@@ -325,12 +326,16 @@ impl BinRead for ActionGradient {
     }
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
+#[br(big)]
+#[bw(big)]
 pub struct ActionString {
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub name: NullString,
     pub channel_index: VX,
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub value: NullString,
 }
 
@@ -340,6 +345,35 @@ pub enum ActionChannels {
     CHNN(ActionNamedChannel),
     GRAD(ActionGradient),
     CHNS(ActionString),
+}
+
+impl ActionChannels {
+    fn subchunk_kind(&self) -> ID4 {
+        match self {
+            ActionChannels::CHAN(_) => ID4::from_str("CHAN").unwrap(),
+            ActionChannels::CHNN(_) => ID4::from_str("CHNN").unwrap(),
+            ActionChannels::GRAD(_) => ID4::from_str("GRAD").unwrap(),
+            ActionChannels::CHNS(_) => ID4::from_str("CHNS").unwrap(),
+        }
+    }
+}
+
+impl BinWrite for ActionChannels {
+    type Args<'a> = ();
+
+    fn write_options<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        _endian: Endian,
+        (): Self::Args<'_>,
+    ) -> BinResult<()> {
+        match self {
+            ActionChannels::CHAN(ch) => ch.write_options(writer, _endian, ()),
+            ActionChannels::CHNN(ch) => ch.write_options(writer, _endian, ()),
+            ActionChannels::GRAD(ch) => ch.write_options(writer, _endian, ()),
+            ActionChannels::CHNS(ch) => ch.write_options(writer, _endian, ()),
+        }
+    }
 }
 
 impl BinRead for Action {
@@ -432,23 +466,45 @@ impl BinWrite for Action {
         _endian: Endian,
         (): Self::Args<'_>,
     ) -> BinResult<()> {
-        self.name.write_be(writer)?;
-        if !writer.stream_position()?.is_multiple_of(2) {
-            0u8.write_be(writer)?;
+        write_aligned_nullstring(writer, &self.name)?;
+        write_aligned_nullstring(writer, &self.kind)?;
+
+        self.reference.write_be(writer)?;
+
+        if let Some(parent) = self.parent {
+            let mut buf = Cursor::new(Vec::new());
+            parent.write_be(&mut buf)?;
+            let data = buf.into_inner();
+            SubChunkHeader {
+                kind: ID4::from_str("PRNT").unwrap(),
+                size: data.len() as u16,
+            }
+            .write_be(writer)?;
+            writer.write_all(&data)?;
         }
 
-        self.kind.write_be(writer)?;
-        if !writer.stream_position()?.is_multiple_of(2) {
-            0u8.write_be(writer)?;
-        }
+        for (item_index, channels) in &self.items {
+            let mut buf = Cursor::new(Vec::new());
+            item_index.write_be(&mut buf)?;
+            let data = buf.into_inner();
+            SubChunkHeader {
+                kind: ID4::from_str("ITEM").unwrap(),
+                size: data.len() as u16,
+            }
+            .write_be(writer)?;
+            writer.write_all(&data)?;
 
-        match self.parent {
-            Some(_parent) => todo!("PRNT subchunk"),
-            _ => {}
-        }
-
-        if !self.items.is_empty() {
-            todo!("ITEM subchunk, with all it's 'child' channels");
+            for channel in channels {
+                let mut buf = Cursor::new(Vec::new());
+                channel.write_be(&mut buf)?;
+                let data = buf.into_inner();
+                SubChunkHeader {
+                    kind: channel.subchunk_kind(),
+                    size: data.len() as u16,
+                }
+                .write_be(writer)?;
+                writer.write_all(&data)?;
+            }
         }
 
         Ok(())
@@ -524,6 +580,40 @@ mod tests {
         assert_eq!(action.reference, 1);
         assert_eq!(action.parent, Some(2));
         assert!(action.items.is_empty());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        action.write_be(&mut writer).unwrap();
+        assert_eq!(writer.into_inner(), reader.into_inner());
+    }
+
+    #[test]
+    fn action_with_item_and_channels() {
+        // This is a fully synthetic test. Usually a file will contain three actions by default, and
+        // the only really interesting one is 'setup' that is about 1188 bytes. Multiple items and
+        // channels.
+        let original = [
+            0x41, 0x43, 0x54, 0x4e, 0x00, 0x00, 0x00, 0x28, 0x74, 0x65, 0x73, 0x74, 0x00, 0x00,
+            0x61, 0x6e, 0x69, 0x00, 0x00, 0x00, 0x00, 0x03, 0x49, 0x54, 0x45, 0x4d, 0x00, 0x04,
+            0x00, 0x00, 0x00, 0x05, 0x43, 0x48, 0x41, 0x4e, 0x00, 0x0a, 0x00, 0x01, 0x00, 0x02,
+            0x00, 0x00, 0x3f, 0x80, 0x00, 0x00,
+        ];
+
+        let mut reader = Cursor::new(original);
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        let action = Action::read_be_args(&mut reader, header.size).unwrap();
+
+        assert_eq!(action.name, "test".into());
+        assert_eq!(action.kind, "ani".into());
+        assert_eq!(action.reference, 3);
+        assert!(action.parent.is_none());
+        assert!(action.items.contains_key(&5));
+        assert_eq!(action.items[&5].len(), 1);
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        action.write_be(&mut writer).unwrap();
+        assert_eq!(writer.into_inner(), original);
     }
 
     #[test]
