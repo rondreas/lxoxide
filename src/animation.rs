@@ -1,10 +1,10 @@
 use crate::primitives::{ChannelValue, SubChunkHeader, VX};
 use crate::utils::read_aligned_nullstring;
-use binrw::{BinRead, BinResult, BinWrite, NullString};
+use binrw::{BinRead, BinResult, BinWrite, Endian, NullString};
 use bitflags::bitflags;
 use std::collections::BTreeMap;
 use std::fmt;
-use std::io::{Read, Seek};
+use std::io::{Read, Seek, Write};
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[br(big, repr=u32)]
@@ -227,7 +227,7 @@ pub struct Action {
     pub items: BTreeMap<u32, Vec<ActionChannels>>,
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
 pub struct ActionChannel {
     pub channel_index: VX,
     pub kind: u16,
@@ -423,6 +423,38 @@ impl BinRead for Action {
     }
 }
 
+impl BinWrite for Action {
+    type Args<'a> = ();
+
+    fn write_options<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        _endian: Endian,
+        (): Self::Args<'_>,
+    ) -> BinResult<()> {
+        self.name.write_be(writer)?;
+        if !writer.stream_position()?.is_multiple_of(2) {
+            0u8.write_be(writer)?;
+        }
+
+        self.kind.write_be(writer)?;
+        if !writer.stream_position()?.is_multiple_of(2) {
+            0u8.write_be(writer)?;
+        }
+
+        match self.parent {
+            Some(_parent) => todo!("PRNT subchunk"),
+            _ => {}
+        }
+
+        if !self.items.is_empty() {
+            todo!("ITEM subchunk, with all it's 'child' channels");
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -528,6 +560,13 @@ mod tests {
         assert_eq!(chan.variable, ChannelValue::String("frames".into()));
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+
+        writer.write_be(&header).unwrap();
+        writer.write_be(&chan).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
