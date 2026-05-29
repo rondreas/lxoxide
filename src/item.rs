@@ -41,7 +41,8 @@ bitflags! {
 }
 
 ///
-/// The XREF sub-chunk identifies an external reference item, and is only present if this item is indeed a reference itself.
+/// The XREF sub-chunk identifies an external reference item, and is only present if this item is 
+/// indeed a reference itself.
 ///
 #[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
@@ -79,7 +80,7 @@ pub struct Package {
     pub data: Vec<u8>,
 }
 
-#[derive(BinRead, Debug, Clone, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, Clone, PartialEq)]
 #[br(big)]
 pub struct Channel {
     pub index: VX,
@@ -88,23 +89,37 @@ pub struct Channel {
     pub value: ChannelValue,
 }
 
-#[derive(BinRead, Debug, Clone, PartialEq)]
+///
+/// The LINK sub-chunk relates one item to another item. Parenting is one kind of linking. 
+/// LINK sub-chunks contain a graph type name, unique ID to the target item, and the index of the 
+/// link. Zero or more of these may be present in an ITEM chunk.
+///
+#[derive(BinRead, BinWrite, Debug, Clone, PartialEq)]
 #[br(big)]
 pub struct Link {
+    /// The name of the graph that this link belongs to, such as parent
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub name: NullString,
+
+    /// The ID of the item in the scene
     pub id: u32,
+
+    /// The index of the link
     pub index: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, BinWrite, Clone, PartialEq)]
 pub struct Gradient {
+    #[bw(align_after = 2)]
     pub name: NullString,
     pub envelope_index: VX,
     pub flags: EnvelopeInterpolationFlag,
 
+    #[bw(align_after = 2)]
     pub kind0: Option<NullString>,
 
+    #[bw(align_after = 2)]
     pub kind1: Option<NullString>,
 }
 
@@ -141,15 +156,18 @@ impl BinRead for Gradient {
     }
 }
 
-#[derive(BinRead, Debug, Clone, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, Clone, PartialEq)]
 #[br(repr=u32)]
+#[bw(repr=u32)]
 pub enum EnvelopeInterpolationFlag {
     Curve,
     Linear,
     Stepped,
 }
 
-#[derive(BinRead, Debug, Clone, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, Clone, PartialEq)]
+#[br(big)]
+#[bw(big)]
 pub struct BoundingBox {
     pub min: [f32; 3],
     pub max: [f32; 3],
