@@ -566,7 +566,17 @@ impl BinWrite for Item {
         }
 
         // TODO user channels...
-        // TODO channel links...
+
+        for channel_link in &self.channel_links {
+            let mut buf = Cursor::new(Vec::new());
+            channel_link.write_be(&mut buf)?;
+            let data = buf.into_inner();
+            SubChunkHeader{
+                kind: ID4::from_str("CLNK").unwrap(),
+                size: data.len() as u16,
+            }.write_be(writer)?;
+            writer.write_all(&data)?;
+        }
 
         for link in &self.links {
             let mut buf = Cursor::new(Vec::new());
