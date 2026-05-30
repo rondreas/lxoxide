@@ -358,15 +358,18 @@ impl BinRead for DataBlock {
     }
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
 pub struct ChannelLink {
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub graph: NullString,
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub from: NullString,
     pub item: u32,
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub to: NullString,
     pub from_index: u32,
     pub to_index: u32,
@@ -1219,6 +1222,34 @@ mod tests {
 
         // assert we read all data
         assert!(reader.stream_position().unwrap() == reader.get_ref().len() as u64);
+    }
+
+    #[test]
+    fn channel_link() {
+        let mut reader = Cursor::new([
+            0x43, 0x4c, 0x4e, 0x4b, 0x00, 0x24, 0x63, 0x68, 0x61, 0x6e, 0x4c, 0x69,
+            0x6e, 0x6b, 0x73, 0x00, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x27, 0x73, 0x69, 0x7a, 0x65, 0x59, 0x00, 0x00, 0x00,
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x00
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let link = ChannelLink::read_be(&mut reader).unwrap();
+
+        assert_eq!(link.graph, "chanLinks".into());
+        assert_eq!(link.from, "output".into());
+        assert_eq!(link.item, 39);
+        assert_eq!(link.to, "sizeY".into());
+        assert_eq!(link.from_index, 1);
+        assert_eq!(link.to_index, 0);
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&link).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
