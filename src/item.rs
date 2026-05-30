@@ -173,9 +173,11 @@ pub struct BoundingBox {
     pub max: [f32; 3],
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, BinWrite, Clone, PartialEq)]
 pub struct VectorChannel {
+    #[bw(align_after=2)]
     pub name: NullString,
+    #[bw(map = |mask: &ChannelDataMask| mask.bits())]
     pub kind: ChannelDataMask,
     pub dimensions: u16,
     pub elements: Vec<VectorElement>,
@@ -205,8 +207,9 @@ impl BinRead for VectorChannel {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, BinWrite, Clone, PartialEq)]
 pub struct VectorElement {
+    #[bw(align_after=2)]
     pub name: NullString,
     pub value: ChannelValue,
 }
@@ -636,6 +639,12 @@ mod tests {
         );
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&vc).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
