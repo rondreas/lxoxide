@@ -1,10 +1,10 @@
 use crate::primitives::{ChannelValue, ID4, SubChunkHeader, VX};
-use crate::utils::{read_aligned_nullstring, write_aligned_nullstring};
+use crate::utils::{read_aligned_nullstring, write_aligned_nullstring, write_subchunk};
 use binrw::{BinRead, BinResult, BinWrite, Endian, NullString};
 use bitflags::bitflags;
 use std::collections::BTreeMap;
 use std::fmt;
-use std::io::{Cursor, Read, Seek, Write};
+use std::io::{Read, Seek, Write};
 use std::str::FromStr;
 
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
@@ -472,38 +472,14 @@ impl BinWrite for Action {
         self.reference.write_be(writer)?;
 
         if let Some(parent) = self.parent {
-            let mut buf = Cursor::new(Vec::new());
-            parent.write_be(&mut buf)?;
-            let data = buf.into_inner();
-            SubChunkHeader {
-                kind: ID4::from_str("PRNT").unwrap(),
-                size: data.len() as u16,
-            }
-            .write_be(writer)?;
-            writer.write_all(&data)?;
+            write_subchunk(writer, ID4::from_str("PRNT").unwrap(), &parent)?;
         }
 
         for (item_index, channels) in &self.items {
-            let mut buf = Cursor::new(Vec::new());
-            item_index.write_be(&mut buf)?;
-            let data = buf.into_inner();
-            SubChunkHeader {
-                kind: ID4::from_str("ITEM").unwrap(),
-                size: data.len() as u16,
-            }
-            .write_be(writer)?;
-            writer.write_all(&data)?;
+            write_subchunk(writer, ID4::from_str("ITEM").unwrap(), item_index)?;
 
             for channel in channels {
-                let mut buf = Cursor::new(Vec::new());
-                channel.write_be(&mut buf)?;
-                let data = buf.into_inner();
-                SubChunkHeader {
-                    kind: channel.subchunk_kind(),
-                    size: data.len() as u16,
-                }
-                .write_be(writer)?;
-                writer.write_all(&data)?;
+                write_subchunk(writer, channel.subchunk_kind(), channel)?;
             }
         }
 

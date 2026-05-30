@@ -1,6 +1,6 @@
 use crate::ParseError;
 use crate::primitives::{ChannelValue, ID4, SubChunkHeader, VX};
-use crate::utils::{read_aligned_nullstring, write_aligned_nullstring};
+use crate::utils::{read_aligned_nullstring, write_aligned_nullstring, write_subchunk};
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{
     BinRead, BinResult, BinWrite, Endian, NullString,
@@ -42,7 +42,7 @@ bitflags! {
 }
 
 ///
-/// The XREF sub-chunk identifies an external reference item, and is only present if this item is 
+/// The XREF sub-chunk identifies an external reference item, and is only present if this item is
 /// indeed a reference itself.
 ///
 #[derive(BinRead, BinWrite, Debug)]
@@ -91,8 +91,8 @@ pub struct Channel {
 }
 
 ///
-/// The LINK sub-chunk relates one item to another item. Parenting is one kind of linking. 
-/// LINK sub-chunks contain a graph type name, unique ID to the target item, and the index of the 
+/// The LINK sub-chunk relates one item to another item. Parenting is one kind of linking.
+/// LINK sub-chunks contain a graph type name, unique ID to the target item, and the index of the
 /// link. Zero or more of these may be present in an ITEM chunk.
 ///
 #[derive(BinRead, BinWrite, Debug, Clone, PartialEq)]
@@ -176,7 +176,7 @@ pub struct BoundingBox {
 
 #[derive(Debug, BinWrite, Clone, PartialEq)]
 pub struct VectorChannel {
-    #[bw(align_after=2)]
+    #[bw(align_after = 2)]
     pub name: NullString,
     #[bw(map = |mask: &ChannelDataMask| mask.bits())]
     pub kind: ChannelDataMask,
@@ -210,7 +210,7 @@ impl BinRead for VectorChannel {
 
 #[derive(Debug, BinWrite, Clone, PartialEq)]
 pub struct VectorElement {
-    #[bw(align_after=2)]
+    #[bw(align_after = 2)]
     pub name: NullString,
     pub value: ChannelValue,
 }
@@ -230,7 +230,7 @@ impl BinRead for VectorElement {
 }
 
 ///
-/// The CHNS sub-chunk represents a string channel containing the channel name and the string 
+/// The CHNS sub-chunk represents a string channel containing the channel name and the string
 /// value. Zero or more of these may be present in an ITEM chunk.
 ///
 #[derive(BinRead, BinWrite, Debug, Clone, PartialEq)]
@@ -578,107 +578,60 @@ impl BinWrite for Item {
         self.id.write_be(writer)?;
 
         if let Some(reference) = &self.reference {
-            let mut buf = Cursor::new(Vec::new());
-            reference.write_be(&mut buf)?;
-            let data = buf.into_inner();
-            SubChunkHeader{
-                kind: ID4::from_str("XREF").unwrap(),
-                size: data.len() as u16,
-            }.write_be(writer)?;
-            writer.write_all(&data)?;
+            write_subchunk(writer, ID4::from_str("XREF").unwrap(), reference)?;
         }
 
         if let Some(layer) = &self.layer {
-            SubChunkHeader{
+            SubChunkHeader {
                 kind: ID4::from_str("LAYR").unwrap(),
                 size: 12u16,
-            }.write_be(writer)?;
+            }
+            .write_be(writer)?;
             layer.write_be(writer)?;
         }
 
         if let Some(package) = &self.package {
-            let mut buf = Cursor::new(Vec::new());
-            package.write_be(&mut buf)?;
-            let data = buf.into_inner();
-            SubChunkHeader{
-                kind: ID4::from_str("XREF").unwrap(),
-                size: data.len() as u16,
-            }.write_be(writer)?;
-            writer.write_all(&data)?;
+            write_subchunk(writer, ID4::from_str("PAKG").unwrap(), package)?;
         }
 
         for channel in &self.user_channels {
-            let mut buf = Cursor::new(Vec::new());
-            channel.write_be(&mut buf)?;
-            let data = buf.into_inner();
-            SubChunkHeader{
-                kind: ID4::from_str("UCHN").unwrap(),
-                size: data.len() as u16,
-            }.write_be(writer)?;
-            writer.write_all(&data)?;
+            write_subchunk(writer, ID4::from_str("UCHN").unwrap(), channel)?;
         }
 
         for channel_link in &self.channel_links {
-            let mut buf = Cursor::new(Vec::new());
-            channel_link.write_be(&mut buf)?;
-            let data = buf.into_inner();
-            SubChunkHeader{
-                kind: ID4::from_str("CLNK").unwrap(),
-                size: data.len() as u16,
-            }.write_be(writer)?;
-            writer.write_all(&data)?;
+            write_subchunk(writer, ID4::from_str("CLNK").unwrap(), channel_link)?;
         }
 
         for link in &self.links {
-            let mut buf = Cursor::new(Vec::new());
-            link.write_be(&mut buf)?;
-            let data = buf.into_inner();
-            SubChunkHeader{
-                kind: ID4::from_str("LINK").unwrap(),
-                size: data.len() as u16,
-            }.write_be(writer)?;
-            writer.write_all(&data)?;
+            write_subchunk(writer, ID4::from_str("LINK").unwrap(), link)?;
         }
 
         for channel in &self.channels {
-            let mut buf = Cursor::new(Vec::new());
-            channel.write_be(&mut buf)?;
-            let data = buf.into_inner();
-            SubChunkHeader {
-                kind: channel.subchunk_kind(),
-                size: data.len() as u16,
-            }
-            .write_be(writer)?;
-            writer.write_all(&data)?;
+            write_subchunk(writer, channel.subchunk_kind(), channel)?;
         }
 
         for tag in &self.tags {
-            let mut buf = Cursor::new(Vec::new());
-            tag.write_be(&mut buf)?;
-            let data = buf.into_inner();
-            SubChunkHeader{
-                kind: ID4::from_str("ITAG").unwrap(),
-                size: data.len() as u16,
-            }.write_be(writer)?;
-            writer.write_all(&data)?;
+            write_subchunk(writer, ID4::from_str("ITAG").unwrap(), tag)?;
         }
 
         if let Some(ident) = &self.ident {
             let mut buf = Cursor::new(Vec::new());
             write_aligned_nullstring(&mut buf, ident)?;
             let data = buf.into_inner();
-            SubChunkHeader{
+            SubChunkHeader {
                 kind: ID4::from_str("UNIQ").unwrap(),
                 size: data.len() as u16,
-            }.write_be(writer)?;
+            }
+            .write_be(writer)?;
             writer.write_all(&data)?;
         }
 
         if let Some(index) = &self.index {
-            SubChunkHeader{
+            SubChunkHeader {
                 kind: ID4::from_str("UIDX").unwrap(),
                 size: 4u16,
-            }.write_be(writer)?;
+            }
+            .write_be(writer)?;
             index.write_be(writer)?;
         }
 
@@ -686,18 +639,20 @@ impl BinWrite for Item {
             let mut buf = Cursor::new(Vec::new());
             write_aligned_nullstring(&mut buf, visible_name)?;
             let data = buf.into_inner();
-            SubChunkHeader{
+            SubChunkHeader {
                 kind: ID4::from_str("VNAM").unwrap(),
                 size: data.len() as u16,
-            }.write_be(writer)?;
+            }
+            .write_be(writer)?;
             writer.write_all(&data)?;
         }
 
         if let Some(bounds) = &self.bounds {
-            SubChunkHeader{
+            SubChunkHeader {
                 kind: ID4::from_str("BBOX").unwrap(),
                 size: 24u16,
-            }.write_be(writer)?;
+            }
+            .write_be(writer)?;
             bounds.write_be(writer)?;
         }
 
@@ -1057,18 +1012,20 @@ mod tests {
     #[test]
     fn output_pattern_string_channel() {
         let mut reader = Cursor::new([
-            0x43, 0x48, 0x4e, 0x53, 0x00, 0x2c, 0x6f, 0x75, 0x74, 0x50, 0x61, 0x74,
-            0x00, 0x00, 0x2e, 0x5b, 0x3c, 0x70, 0x61, 0x73, 0x73, 0x3e, 0x2e, 0x5d,
-            0x5b, 0x3c, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x3e, 0x2e, 0x5d, 0x5b,
-            0x3c, 0x4c, 0x52, 0x3e, 0x2e, 0x5d, 0x3c, 0x46, 0x46, 0x46, 0x46, 0x3e,
-            0x00, 0x00
+            0x43, 0x48, 0x4e, 0x53, 0x00, 0x2c, 0x6f, 0x75, 0x74, 0x50, 0x61, 0x74, 0x00, 0x00,
+            0x2e, 0x5b, 0x3c, 0x70, 0x61, 0x73, 0x73, 0x3e, 0x2e, 0x5d, 0x5b, 0x3c, 0x6f, 0x75,
+            0x74, 0x70, 0x75, 0x74, 0x3e, 0x2e, 0x5d, 0x5b, 0x3c, 0x4c, 0x52, 0x3e, 0x2e, 0x5d,
+            0x3c, 0x46, 0x46, 0x46, 0x46, 0x3e, 0x00, 0x00,
         ]);
 
         let header = SubChunkHeader::read_be(&mut reader).unwrap();
         let string_channel = StringChannel::read_be(&mut reader).unwrap();
 
         assert_eq!(string_channel.name, "outPat".into());
-        assert_eq!(string_channel.value, ".[<pass>.][<output>.][<LR>.]<FFFF>".into());
+        assert_eq!(
+            string_channel.value,
+            ".[<pass>.][<output>.][<LR>.]<FFFF>".into()
+        );
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
 
@@ -1338,10 +1295,9 @@ mod tests {
     #[test]
     fn channel_link() {
         let mut reader = Cursor::new([
-            0x43, 0x4c, 0x4e, 0x4b, 0x00, 0x24, 0x63, 0x68, 0x61, 0x6e, 0x4c, 0x69,
-            0x6e, 0x6b, 0x73, 0x00, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x27, 0x73, 0x69, 0x7a, 0x65, 0x59, 0x00, 0x00, 0x00,
-            0x00, 0x01, 0x00, 0x00, 0x00, 0x00
+            0x43, 0x4c, 0x4e, 0x4b, 0x00, 0x24, 0x63, 0x68, 0x61, 0x6e, 0x4c, 0x69, 0x6e, 0x6b,
+            0x73, 0x00, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x00, 0x00, 0x00, 0x00, 0x00, 0x27,
+            0x73, 0x69, 0x7a, 0x65, 0x59, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
         ]);
 
         let header = SubChunkHeader::read_be(&mut reader).unwrap();
