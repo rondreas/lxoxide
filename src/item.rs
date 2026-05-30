@@ -1,12 +1,13 @@
 use crate::ParseError;
 use crate::primitives::{ChannelValue, ID4, SubChunkHeader, VX};
-use crate::utils::read_aligned_nullstring;
+use crate::utils::{read_aligned_nullstring, write_aligned_nullstring};
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{
     BinRead, BinResult, BinWrite, Endian, NullString,
-    io::{Read, Seek},
+    io::{Cursor, Read, Seek, Write},
 };
 use bitflags::bitflags;
+use std::str::FromStr;
 
 ///
 /// The LAYR sub-chunk contains layer-specific features for the item. This consists of a layer
@@ -245,10 +246,11 @@ pub struct StringChannel {
     pub value: NullString,
 }
 
-#[derive(BinRead, Debug, Clone, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, Clone, PartialEq)]
 pub struct ItemTag {
     pub kind: ID4,
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub tag: NullString,
 }
 
@@ -514,6 +516,118 @@ impl BinRead for Item {
             visible_name,
             bounds,
         })
+    }
+}
+
+impl BinWrite for Item {
+    type Args<'a> = ();
+
+    fn write_options<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        _endiant: Endian,
+        (): Self::Args<'_>,
+    ) -> BinResult<()> {
+        write_aligned_nullstring(writer, &self.kind)?;
+        write_aligned_nullstring(writer, &self.name)?;
+        self.id.write_be(writer)?;
+
+        if let Some(reference) = &self.reference {
+            let mut buf = Cursor::new(Vec::new());
+            reference.write_be(&mut buf)?;
+            let data = buf.into_inner();
+            SubChunkHeader{
+                kind: ID4::from_str("XREF").unwrap(),
+                size: data.len() as u16,
+            }.write_be(writer)?;
+            writer.write_all(&data)?;
+        }
+
+        if let Some(layer) = &self.layer {
+            SubChunkHeader{
+                kind: ID4::from_str("LAYR").unwrap(),
+                size: 12u16,
+            }.write_be(writer)?;
+            layer.write_be(writer)?;
+        }
+
+        if let Some(package) = &self.package {
+            let mut buf = Cursor::new(Vec::new());
+            package.write_be(&mut buf)?;
+            let data = buf.into_inner();
+            SubChunkHeader{
+                kind: ID4::from_str("XREF").unwrap(),
+                size: data.len() as u16,
+            }.write_be(writer)?;
+            writer.write_all(&data)?;
+        }
+
+        // TODO user channels...
+        // TODO channel links...
+
+        for link in &self.links {
+            let mut buf = Cursor::new(Vec::new());
+            link.write_be(&mut buf)?;
+            let data = buf.into_inner();
+            SubChunkHeader{
+                kind: ID4::from_str("LINK").unwrap(),
+                size: data.len() as u16,
+            }.write_be(writer)?;
+            writer.write_all(&data)?;
+        }
+
+        // TODO channels...
+
+        for tag in &self.tags {
+            let mut buf = Cursor::new(Vec::new());
+            tag.write_be(&mut buf)?;
+            let data = buf.into_inner();
+            SubChunkHeader{
+                kind: ID4::from_str("ITAG").unwrap(),
+                size: data.len() as u16,
+            }.write_be(writer)?;
+            writer.write_all(&data)?;
+        }
+
+        if let Some(ident) = &self.ident {
+            let mut buf = Cursor::new(Vec::new());
+            write_aligned_nullstring(&mut buf, ident)?;
+            let data = buf.into_inner();
+            SubChunkHeader{
+                kind: ID4::from_str("UNIQ").unwrap(),
+                size: data.len() as u16,
+            }.write_be(writer)?;
+            writer.write_all(&data)?;
+        }
+
+        if let Some(index) = &self.index {
+            SubChunkHeader{
+                kind: ID4::from_str("UIDX").unwrap(),
+                size: 4u16,
+            }.write_be(writer)?;
+            index.write_be(writer)?;
+        }
+
+        if let Some(visible_name) = &self.visible_name {
+            let mut buf = Cursor::new(Vec::new());
+            write_aligned_nullstring(&mut buf, visible_name)?;
+            let data = buf.into_inner();
+            SubChunkHeader{
+                kind: ID4::from_str("VNAM").unwrap(),
+                size: data.len() as u16,
+            }.write_be(writer)?;
+            writer.write_all(&data)?;
+        }
+
+        if let Some(bounds) = &self.bounds {
+            SubChunkHeader{
+                kind: ID4::from_str("BBOX").unwrap(),
+                size: 24u16,
+            }.write_be(writer)?;
+            bounds.write_be(writer)?;
+        }
+
+        Ok(())
     }
 }
 
