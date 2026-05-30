@@ -696,6 +696,12 @@ mod tests {
         );
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&vc).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
