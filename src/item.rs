@@ -287,9 +287,11 @@ fn read_channel_value<R: Read + Seek>(
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, BinWrite, Clone, PartialEq)]
 pub struct ScalarChannel {
+    #[bw(align_after = 2)]
     pub name: NullString,
+    #[bw(map=|mask: &ChannelDataMask| mask.bits())]
     pub kind: ChannelDataMask,
     pub value: ChannelValue,
 }
@@ -309,9 +311,10 @@ impl BinRead for ScalarChannel {
     }
 }
 
-#[derive(BinRead, Debug, Clone, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, Clone, PartialEq)]
 pub struct BlockChannel {
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub name: NullString,
     pub index: u32,
 }
@@ -324,6 +327,39 @@ pub enum Channels {
     CHNV(VectorChannel),
     CHNS(StringChannel),
     BCHN(BlockChannel),
+}
+
+impl Channels {
+    fn subchunk_kind(&self) -> ID4 {
+        match self {
+            Channels::CHAN(_) => ID4::from_str("CHAN").unwrap(),
+            Channels::GRAD(_) => ID4::from_str("GRAD").unwrap(),
+            Channels::CHNL(_) => ID4::from_str("CHNL").unwrap(),
+            Channels::CHNV(_) => ID4::from_str("CHNV").unwrap(),
+            Channels::CHNS(_) => ID4::from_str("CHNS").unwrap(),
+            Channels::BCHN(_) => ID4::from_str("BCHN").unwrap(),
+        }
+    }
+}
+
+impl BinWrite for Channels {
+    type Args<'a> = ();
+
+    fn write_options<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        _endian: Endian,
+        (): Self::Args<'_>,
+    ) -> BinResult<()> {
+        match self {
+            Channels::CHAN(ch) => ch.write_options(writer, _endian, ()),
+            Channels::GRAD(ch) => ch.write_options(writer, _endian, ()),
+            Channels::CHNL(ch) => ch.write_options(writer, _endian, ()),
+            Channels::CHNV(ch) => ch.write_options(writer, _endian, ()),
+            Channels::CHNS(ch) => ch.write_options(writer, _endian, ()),
+            Channels::BCHN(ch) => ch.write_options(writer, _endian, ()),
+        }
+    }
 }
 
 pub struct DataBlock {
@@ -375,8 +411,9 @@ pub struct ChannelLink {
     pub to_index: u32,
 }
 
-#[derive(BinRead, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[br(repr=u32, big)]
+#[bw(repr=u32, big)]
 pub enum VectorMode {
     Scalar,
     XY,
@@ -385,18 +422,23 @@ pub enum VectorMode {
     RGBA,
 }
 
-#[derive(BinRead, Debug, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq)]
 pub struct TextHint {
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub name: NullString,
     pub value: i32,
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
+#[br(big)]
+#[bw(big)]
 pub struct UserChannel {
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub name: NullString,
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub kind: NullString,
     pub mode: VectorMode,
     pub flag: u32,
@@ -565,7 +607,16 @@ impl BinWrite for Item {
             writer.write_all(&data)?;
         }
 
-        // TODO user channels...
+        for channel in &self.user_channels {
+            let mut buf = Cursor::new(Vec::new());
+            channel.write_be(&mut buf)?;
+            let data = buf.into_inner();
+            SubChunkHeader{
+                kind: ID4::from_str("UCHN").unwrap(),
+                size: data.len() as u16,
+            }.write_be(writer)?;
+            writer.write_all(&data)?;
+        }
 
         for channel_link in &self.channel_links {
             let mut buf = Cursor::new(Vec::new());
@@ -589,7 +640,17 @@ impl BinWrite for Item {
             writer.write_all(&data)?;
         }
 
-        // TODO channels...
+        for channel in &self.channels {
+            let mut buf = Cursor::new(Vec::new());
+            channel.write_be(&mut buf)?;
+            let data = buf.into_inner();
+            SubChunkHeader {
+                kind: channel.subchunk_kind(),
+                size: data.len() as u16,
+            }
+            .write_be(writer)?;
+            writer.write_all(&data)?;
+        }
 
         for tag in &self.tags {
             let mut buf = Cursor::new(Vec::new());
@@ -1035,7 +1096,13 @@ mod tests {
         assert_eq!(user_channel.name, "MyMatrix".into());
         assert_eq!(user_channel.kind, "matrix4".into());
 
-        assert_eq!(reader.stream_position().unwrap(), 58);
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&user_channel).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
@@ -1056,7 +1123,13 @@ mod tests {
         assert_eq!(user_channel.name, "MyPattern".into());
         assert_eq!(user_channel.kind, "+pattern".into());
 
-        assert_eq!(reader.stream_position().unwrap(), 60);
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&user_channel).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
@@ -1077,7 +1150,13 @@ mod tests {
         assert_eq!(user_channel.name, "MyNumbers".into());
         assert_eq!(user_channel.kind, "+intrange".into());
 
-        assert_eq!(reader.stream_position().unwrap(), 60);
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&user_channel).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
@@ -1098,7 +1177,13 @@ mod tests {
         assert_eq!(user_channel.name, "MyGradient".into());
         assert_eq!(user_channel.kind, "color1".into());
 
-        assert_eq!(reader.stream_position().unwrap(), 62);
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&user_channel).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
@@ -1119,7 +1204,13 @@ mod tests {
         assert_eq!(user_channel.name, "MyQuaternion".into());
         assert_eq!(user_channel.kind, "quaternion".into());
 
-        assert_eq!(reader.stream_position().unwrap(), 70);
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&user_channel).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
@@ -1152,7 +1243,13 @@ mod tests {
             value: 1000
         }));
 
-        assert_eq!(reader.stream_position().unwrap(), 62);
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&user_channel).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
@@ -1232,6 +1329,10 @@ mod tests {
 
         // assert we read all data
         assert!(reader.stream_position().unwrap() == reader.get_ref().len() as u64);
+
+        let mut writer = Cursor::new(vec![]);
+        item.write_be(&mut writer).unwrap();
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
