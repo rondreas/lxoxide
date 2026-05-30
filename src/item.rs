@@ -754,7 +754,7 @@ mod tests {
     }
 
     #[test]
-    fn string_channel() {
+    fn channel_with_string_value() {
         let mut reader = Cursor::new([
             0x43, 0x48, 0x41, 0x4e, 0x00, 0x08, 0x00, 0xa4, 0x00, 0x03, 0x6f, 0x66, 0x66, 0x00,
         ]);
@@ -767,10 +767,16 @@ mod tests {
         assert_eq!(chan.value, ChannelValue::String("off".into()));
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&chan).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
-    fn string_channel_undefined_action() {
+    fn channel_with_string_value_and_undefined_action() {
         let mut reader = Cursor::new([
             0x43, 0x48, 0x41, 0x4e, 0x00, 0x0c, 0x00, 0x47, 0x00, 0x23, 0x64, 0x65, 0x66, 0x61,
             0x75, 0x6c, 0x74, 0x00,
@@ -823,6 +829,25 @@ mod tests {
 
         assert_eq!(grad.kind0, Some(NullString("float".into())));
         assert_eq!(grad.kind1, Some(NullString("float".into())));
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+    }
+
+    #[test]
+    fn output_pattern_string_channel() {
+        let mut reader = Cursor::new([
+            0x43, 0x48, 0x4e, 0x53, 0x00, 0x2c, 0x6f, 0x75, 0x74, 0x50, 0x61, 0x74,
+            0x00, 0x00, 0x2e, 0x5b, 0x3c, 0x70, 0x61, 0x73, 0x73, 0x3e, 0x2e, 0x5d,
+            0x5b, 0x3c, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x3e, 0x2e, 0x5d, 0x5b,
+            0x3c, 0x4c, 0x52, 0x3e, 0x2e, 0x5d, 0x3c, 0x46, 0x46, 0x46, 0x46, 0x3e,
+            0x00, 0x00
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let string_channel = StringChannel::read_be(&mut reader).unwrap();
+
+        assert_eq!(string_channel.name, "outPat".into());
+        assert_eq!(string_channel.value, ".[<pass>.][<output>.][<LR>.]<FFFF>".into());
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
     }
