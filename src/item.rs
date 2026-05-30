@@ -228,11 +228,20 @@ impl BinRead for VectorElement {
     }
 }
 
-#[derive(BinRead, Debug, Clone, PartialEq)]
+///
+/// The CHNS sub-chunk represents a string channel containing the channel name and the string 
+/// value. Zero or more of these may be present in an ITEM chunk.
+///
+#[derive(BinRead, BinWrite, Debug, Clone, PartialEq)]
 pub struct StringChannel {
+    /// Channel name
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub name: NullString,
+
+    /// String value assigned to the channel
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub value: NullString,
 }
 
@@ -850,6 +859,12 @@ mod tests {
         assert_eq!(string_channel.value, ".[<pass>.][<output>.][<LR>.]<FFFF>".into());
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&string_channel).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
