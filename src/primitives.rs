@@ -11,6 +11,27 @@ pub enum VX {
     U4(u32),
 }
 
+pub fn read_vx_from_bytes(buf: &[u8]) -> Result<(VX, usize), binrw::Error> {
+    if buf.len() < 2 {
+        return Err(binrw::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "VX truncated",
+        )));
+    }
+    let a = u16::from_be_bytes([buf[0], buf[1]]);
+    if a < 0xff00 {
+        return Ok((VX::U2(a), 2));
+    }
+    if buf.len() < 4 {
+        return Err(binrw::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "VX U4 truncated",
+        )));
+    }
+    let b = u16::from_be_bytes([buf[2], buf[3]]);
+    Ok((VX::U4((((a as u32) << 16) | (b as u32)) & 0x00ff_ffff), 4))
+}
+
 impl BinRead for VX {
     type Args<'a> = ();
 
@@ -288,6 +309,17 @@ mod tests {
         big_index.write_be(&mut writer).unwrap();
 
         assert_eq!(writer.into_inner(), reader.into_inner());
+    }
+
+    #[test]
+    fn variable_index_from_bytes() {
+        let bytes = [0xfe, 0xff, 0xff, 0x00, 0xff, 0x00];
+
+        let (small_index, offset) = read_vx_from_bytes(&bytes[..]).unwrap();
+        let (big_index, _) = read_vx_from_bytes(&bytes[offset..]).unwrap();
+
+        assert_eq!(small_index, VX::U2(65_279));
+        assert_eq!(big_index, VX::U4(65_280));
     }
 
     #[test]

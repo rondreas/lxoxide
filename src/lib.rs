@@ -91,7 +91,11 @@ pub enum ParseError {
     OddChunkSize { kind: ID4, size: u32 },
 
     #[error("Chunk {kind} consumed {consumed} bytes, expected {expected}")]
-    ChunkBoundaryMismatch { kind: ID4, expected: u32, consumed: u64 },
+    ChunkBoundaryMismatch {
+        kind: ID4,
+        expected: u32,
+        consumed: u64,
+    },
 
     #[error("File type not supported")]
     NonSupportedExtension,

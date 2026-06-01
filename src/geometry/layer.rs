@@ -1,4 +1,4 @@
-use crate::primitives::{ID4, Point, VX};
+use crate::primitives::{ID4, Point, VX, read_vx_from_bytes};
 use crate::utils::read_aligned_nullstring;
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{BinRead, BinResult, Endian, NullString};
@@ -285,6 +285,54 @@ bitflags! {
     }
 }
 
+/// Parse a single polygon from a byte slice. Returns `(Polygon, bytes_consumed)`.
+fn read_polygon_from_bytes(buf: &[u8], kind: ID4) -> Result<(Polygon, usize), binrw::Error> {
+    if buf.len() < 2 {
+        return Err(binrw::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "polygon vertex_count truncated",
+        )));
+    }
+    let vertex_count = u16::from_be_bytes([buf[0], buf[1]]);
+    let mut offset = 2usize;
+
+    let is_curve = kind == "HCRV" || kind == "BCRV" || kind == "BSPL";
+    let flags = if is_curve {
+        if buf.len() < offset + 4 {
+            return Err(binrw::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "polygon flags truncated",
+            )));
+        }
+        let f = u32::from_be_bytes([
+            buf[offset],
+            buf[offset + 1],
+            buf[offset + 2],
+            buf[offset + 3],
+        ]);
+        offset += 4;
+        f
+    } else {
+        0
+    };
+
+    let mut vertex_index = Vec::with_capacity(vertex_count as usize);
+    for _ in 0..vertex_count {
+        let (vx, consumed) = read_vx_from_bytes(&buf[offset..])?;
+        vertex_index.push(vx);
+        offset += consumed;
+    }
+
+    Ok((
+        Polygon {
+            vertex_count,
+            vertex_index,
+            flags,
+        },
+        offset,
+    ))
+}
+
 impl BinRead for Polygon {
     type Args<'a> = ID4;
 
@@ -328,11 +376,22 @@ impl BinRead for PolygonList {
         _endian: Endian,
         size: Self::Args<'_>,
     ) -> BinResult<PolygonList> {
-        let start = reader.stream_position()?;
-        let kind = ID4::read_be(reader)?;
-        let mut polygons = vec![];
-        while reader.stream_position()? - start < size as u64 {
-            polygons.push(Polygon::read_be_args(reader, kind)?);
+        let mut buf = vec![0u8; size as usize];
+        reader.read_exact(&mut buf)?;
+
+        let kind = ID4::from_bytes([buf[0], buf[1], buf[2], buf[3]]).map_err(|e| {
+            binrw::Error::Custom {
+                pos: 0,
+                err: Box::new(e),
+            }
+        })?;
+
+        let mut polygons = Vec::new();
+        let mut offset = 4usize;
+        while offset < buf.len() {
+            let (poly, consumed) = read_polygon_from_bytes(&buf[offset..], kind)?;
+            polygons.push(poly);
+            offset += consumed;
         }
         Ok(PolygonList { kind, polygons })
     }
@@ -752,4 +811,36 @@ mod tests {
 
     #[test]
     fn curve_closed_filled() {}
+
+    #[test]
+    #[ignore]
+    fn benchmark_pols_parsing() {
+        use std::io::BufReader;
+        use std::path::PathBuf;
+        use std::time::Instant;
+
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("tests/fixtures/pols_benchmark");
+
+        let file = std::fs::File::open(&path).expect("pols_benchmark file not found");
+        let size = file.metadata().unwrap().len() as u32;
+        let mut reader = BufReader::new(file);
+
+        let now = Instant::now();
+        let pols = PolygonList::read_be_args(&mut reader, size).unwrap();
+        let elapsed = now.elapsed();
+
+        let total_vertices: usize = pols.polygons.iter().map(|p| p.vertex_index.len()).sum();
+
+        println!(
+            "POLS benchmark: {} ms, {} polygons, {} total vertices, kind={}",
+            elapsed.as_millis(),
+            pols.polygons.len(),
+            total_vertices,
+            pols.kind
+        );
+
+        assert_eq!(pols.kind, "FACE");
+        assert_eq!(reader.stream_position().unwrap(), size as u64);
+    }
 }
