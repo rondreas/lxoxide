@@ -87,6 +87,12 @@ pub enum ParseError {
     #[error("Invalid size for fixed size chunk data")]
     InvalidSize,
 
+    #[error("Chunk {kind} has odd size {size}, data must be padded to even bytes")]
+    OddChunkSize { kind: ID4, size: u32 },
+
+    #[error("Chunk {kind} consumed {consumed} bytes, expected {expected}")]
+    ChunkBoundaryMismatch { kind: ID4, expected: u32, consumed: u64 },
+
     #[error("File type not supported")]
     NonSupportedExtension,
 
@@ -223,6 +229,13 @@ impl LuxologyFile {
             let remaining_bytes = meta.len() - chunk_start_position as u64;
             if (chunk_header.size as u64 + 8) > remaining_bytes {
                 return Err(ParseError::InvalidSize);
+            }
+
+            if chunk_header.size % 2 != 0 {
+                return Err(ParseError::OddChunkSize {
+                    kind: chunk_header.kind,
+                    size: chunk_header.size,
+                });
             }
 
             match chunk_header.kind.as_str() {
@@ -381,6 +394,15 @@ impl LuxologyFile {
 
                     reader.seek_relative(chunk_header.size as i64)?
                 }
+            }
+
+            let consumed = reader.stream_position()? - chunk_start_position as u64 - 8;
+            if consumed != chunk_header.size as u64 {
+                return Err(ParseError::ChunkBoundaryMismatch {
+                    kind: chunk_header.kind,
+                    expected: chunk_header.size,
+                    consumed,
+                });
             }
         }
 
