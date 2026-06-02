@@ -88,8 +88,15 @@ pub struct Layer {
     pub parent: u16,
     pub subdivision_level: f32,
     pub curve_angle: f32,
-    pub scale_pivot: [f32; 3],
-    pub unused: [u32; 6],
+
+    /// 3x3 Matrix for scale and rotation (I think, only seen as identity in all samples )
+    pub matrix: [f32; 9],
+
+    // Documentation says we have a scale pivot f32;3, and 6 unused u32, but they all smell like
+    // floats. So can only assume they should be combined into one 3x3 matrix
+    // pub scale_pivot: [f32; 3],
+    // pub unused: [u32; 6],
+
     pub reference: u32,
     pub spline_patch_level: u16,
     pub future_expansion: [u16; 3],
