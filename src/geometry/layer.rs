@@ -1,10 +1,12 @@
 use crate::primitives::{ID4, Point, VX, read_vx_from_bytes};
 use crate::utils::read_aligned_nullstring;
 use binrw::meta::{EndianKind, ReadEndian};
-use binrw::{BinRead, BinResult, Endian, NullString};
+use binrw::{
+    BinRead, BinWrite, BinResult, Endian, NullString,
+    io::{Read, Seek, Write},
+};
 use bitflags::bitflags;
 use std::collections::BTreeMap;
-use std::io::{Read, Seek};
 use std::ops::Deref;
 
 bitflags! {
@@ -21,8 +23,9 @@ bitflags! {
     }
 }
 
-#[derive(BinRead, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[br(repr=u16)]
+#[bw(repr=u16)]
 pub enum BoundaryRules {
     SmoothAll,
     CreaseAll,
@@ -30,11 +33,13 @@ pub enum BoundaryRules {
 }
 
 // Optional data for layers, mostly unknown what the fields mean.
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
+#[bw(big)]
 pub struct Multiresolution {
     pub unk0: [u8; 8],
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub name: NullString,
     pub unk1: [u8; 34],
 }
@@ -68,19 +73,21 @@ pub struct LayerGeometry {
     pub polygons: BTreeMap<ID4, PolygonGroup>,
 }
 
-#[derive(BinRead, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[br(repr=u16)]
+#[bw(repr=u16)]
 pub enum Smoothing {
     AlwaysEnabled,
     DisabledWithDeformers,
     AlwaysDisabled,
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
 pub struct Layer {
     pub index: u16,
     #[br(map = |x: u16| LayerFlag::from_bits_retain(x))]
+    #[bw(map = |x: &LayerFlag| x.bits())]
     pub flags: LayerFlag,
     pub pivot: [f32; 3],
     #[br(align_after = 2)]
@@ -105,6 +112,7 @@ pub struct Layer {
     pub catmull_subdivision_level: u16,
     pub subdivision_render_level: u16,
     #[br(map = |x: u16| x != 0)]
+    #[bw(map = |x: &bool| u16::from(*x))]
     pub cache_normal_vectors: bool,
     pub catmull_current_level: u16,
     pub smoothing: Smoothing,
@@ -113,11 +121,13 @@ pub struct Layer {
     pub multires: Option<Multiresolution>,
 
     #[br(ignore)]
+    #[bw(ignore)]
     pub geometry: LayerGeometry,
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
 #[br(big, import(count: u32))]
+#[bw(big)]
 pub struct Points(#[br( count = count )] pub Vec<Point>);
 
 impl Deref for Points {
@@ -127,15 +137,17 @@ impl Deref for Points {
     }
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
+#[bw(big)]
 pub struct BoundingBox {
     pub min: Point,
     pub max: Point,
 }
 
-#[derive(BinRead, Debug, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq)]
 #[br(repr=i32)]
+#[bw(repr=i32)]
 pub enum UvSubdivisionKind {
     Linear,
     Subpatch,
@@ -144,14 +156,14 @@ pub enum UvSubdivisionKind {
     SubpatchDiscoEdges,
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
 pub struct VertexMapParameter {
     pub uv_subdivision: UvSubdivisionKind,
     pub sketch_color: i32,
 }
 
-#[derive(Debug)]
+#[derive(BinWrite, Debug)]
 pub struct VertexMap {
     pub kind: ID4,
     pub dimension: u16,
@@ -192,7 +204,7 @@ impl BinRead for VertexMap {
     }
 }
 
-#[derive(Debug)]
+#[derive(BinWrite, Debug)]
 pub struct VertexEdgeMap {
     pub kind: ID4,
     pub dimension: u16,
@@ -234,7 +246,7 @@ impl BinRead for VertexEdgeMap {
     }
 }
 
-#[derive(Debug)]
+#[derive(BinWrite, Debug)]
 pub struct DiscontinousVertexMap {
     pub kind: ID4,
     pub dimension: u16,
@@ -276,11 +288,11 @@ impl BinRead for DiscontinousVertexMap {
     }
 }
 
-#[derive(Debug)]
+#[derive(BinWrite, Debug)]
 pub struct Polygon {
     pub vertex_count: u16,
     pub vertex_index: Vec<VX>,
-    pub flags: u32,
+    pub flags: Option<u32>,
 }
 
 bitflags! {
@@ -292,7 +304,6 @@ bitflags! {
     }
 }
 
-/// Parse a single polygon from a byte slice. Returns `(Polygon, bytes_consumed)`.
 fn read_polygon_from_bytes(buf: &[u8], kind: ID4) -> Result<(Polygon, usize), binrw::Error> {
     if buf.len() < 2 {
         return Err(binrw::Error::Io(std::io::Error::new(
@@ -318,9 +329,9 @@ fn read_polygon_from_bytes(buf: &[u8], kind: ID4) -> Result<(Polygon, usize), bi
             buf[offset + 3],
         ]);
         offset += 4;
-        f
+        Some(f)
     } else {
-        0
+        None
     };
 
     let mut vertex_index = Vec::with_capacity(vertex_count as usize);
@@ -340,32 +351,7 @@ fn read_polygon_from_bytes(buf: &[u8], kind: ID4) -> Result<(Polygon, usize), bi
     ))
 }
 
-impl BinRead for Polygon {
-    type Args<'a> = ID4;
-
-    fn read_options<R: Read + Seek>(
-        reader: &mut R,
-        _endian: Endian,
-        kind: Self::Args<'_>,
-    ) -> BinResult<Self> {
-        let mut flags = 0;
-        let vertex_count = u16::read_be(reader)?;
-        if kind == "HCRV" || kind == "BCRV" || kind == "BSPL" {
-            flags = u32::read_be(reader)?;
-        }
-        let mut vertex_index = Vec::with_capacity(vertex_count as usize);
-        for _ in 0..vertex_count {
-            vertex_index.push(VX::read_be(reader)?);
-        }
-        Ok(Polygon {
-            vertex_count,
-            vertex_index,
-            flags,
-        })
-    }
-}
-
-#[derive(Debug)]
+#[derive(BinWrite, Debug)]
 pub struct PolygonList {
     pub kind: ID4,
     pub polygons: Vec<Polygon>,
@@ -427,6 +413,25 @@ impl BinRead for PolygonTagMapping {
             tags.insert(poly, tag);
         }
         Ok(PolygonTagMapping { kind, tags })
+    }
+}
+
+impl BinWrite for PolygonTagMapping {
+    type Args<'a> = ();
+
+    fn write_options<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        _endian: Endian,
+        (): Self::Args<'_>,
+    ) -> BinResult<()> {
+        self.kind.write_options(writer, _endian, ())?;
+        for (poly, tag) in &self.tags {
+            poly.write_options(writer, _endian, ())?;
+            tag.write_options(writer, _endian, ())?;
+        }
+
+        Ok(())
     }
 }
 
@@ -757,7 +762,7 @@ mod tests {
 
         assert_eq!(pols.kind, "HCRV");
         assert_eq!(pols.polygons.len(), 1);
-        assert_eq!(pols.polygons[0].flags as u8, CurveHandle::Start.bits());
+        assert_eq!(pols.polygons[0].flags.unwrap() as u8, CurveHandle::Start.bits());
 
         // Check that we have read all bytes
         assert_eq!(
@@ -781,7 +786,7 @@ mod tests {
 
         assert_eq!(pols.kind, "HCRV");
         assert_eq!(pols.polygons.len(), 1);
-        assert_eq!(pols.polygons[0].flags as u8, CurveHandle::End.bits());
+        assert_eq!(pols.polygons[0].flags.unwrap() as u8, CurveHandle::End.bits());
 
         // Check that we have read all bytes
         assert_eq!(
@@ -806,7 +811,7 @@ mod tests {
 
         assert_eq!(pols.kind, "HCRV");
         assert_eq!(pols.polygons.len(), 1);
-        assert_eq!(pols.polygons[0].flags as u8, CurveHandle::Closed.bits());
+        assert_eq!(pols.polygons[0].flags.unwrap() as u8, CurveHandle::Closed.bits());
 
         // Check that we have read all bytes
         assert_eq!(

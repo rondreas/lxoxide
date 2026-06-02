@@ -188,8 +188,9 @@ pub struct SubChunkHeader {
     pub size: u16,
 }
 
-#[derive(BinRead, Debug, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, PartialEq)]
 #[br(big)]
+#[bw(big)]
 pub struct Point(pub [f32; 3]);
 
 impl Point {
