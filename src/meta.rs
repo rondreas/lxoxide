@@ -80,8 +80,10 @@ impl fmt::Display for Encoding {
 pub struct Description {
     #[br(align_after = 2)]
     #[bw(align_after = 2)]
-    pub text: NullString,
-    pub num: u16,
+    pub kind: NullString,
+    #[br(align_after = 2)]
+    #[bw(align_after = 2)]
+    pub description: NullString
 }
 
 // a single black pixel in PNG is 67 bytes, and we want event numbers.
@@ -385,8 +387,8 @@ mod tests {
         let header = ChunkHeader::read_be(&mut reader).unwrap();
         let desc = Description::read_be(&mut reader).unwrap();
 
-        assert_eq!(desc.text, "locator".into());
-        assert_eq!(desc.num, 0);
+        assert_eq!(desc.kind, "locator".into());
+        assert!(desc.description.is_empty());
 
         assert_eq!(reader.stream_position().unwrap(), 18);
 

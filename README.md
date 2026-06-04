@@ -66,3 +66,7 @@ See [`docs/lxo_format_spec.md`](docs/lxo_format_spec.md) for the official Luxolo
 - [binrw](https://crates.io/crates/binrw) – Binary read/write with DSL macros
 - [thiserror](https://crates.io/crates/thiserror) – Error derive macros
 - [bitflags](https://crates.io/crates/bitflags) – Type-safe bitflags
+
+## Resources
+
+- [Modo SDK File Formats](https://learn.foundry.com/modo/developers/latest/SDK/pages/general/general/File%20Formats.html): Unfinished documentation for the file format, but more recent than the .pdf spec
