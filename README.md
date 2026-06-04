@@ -29,11 +29,11 @@ for layer in &file.layers {
 }
 
 for trisurf in &file.trisurfs {
-    // Triangulated surface data
+    // Static mesh surface data
 }
 
 for item in &file.items {
-    // Scene items with animated channels
+    // Scene items
 }
 ```
 
