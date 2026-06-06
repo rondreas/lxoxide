@@ -25,7 +25,8 @@ use geometry::trisurf::{
 use item::{DataBlock, Item};
 use media::Audio;
 use meta::{
-    ApplicationVersion, ChannelNames, Description, Encoding, IncludeAsSubscene, ItemTags, Version,
+    ApplicationVersion, ChannelNames, Description, Encoding, IncludeAsSubscene, ItemTags, Preview,
+    Reference, Subscene, Version,
 };
 
 #[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,7 +93,7 @@ pub enum ParseError {
 
     #[error("Chunk {kind} consumed {consumed} bytes, expected {expected}")]
     ChunkBoundaryMismatch {
-        kind: ID4,
+        kind: String,
         expected: u32,
         consumed: u64,
     },
@@ -142,6 +143,9 @@ pub enum ParseError {
 pub struct LuxologyFile {
     pub header: Header,
 
+    // Optional thumbnail for the scene
+    pub preview: Option<Preview>,
+
     pub description: Option<Description>,
     pub version: Option<Version>,
     pub application_version: Option<ApplicationVersion>,
@@ -149,6 +153,10 @@ pub struct LuxologyFile {
 
     // even scenes which does not include subscenes, tend to have this chunk
     pub included_subscene: Option<IncludeAsSubscene>,
+
+    // references are included as subscenes and references, SUBS and XREF chunks
+    pub subscenes: Vec<Subscene>,
+    pub references: Vec<Reference>,
 
     // todo: rewrite these chunks to just be a Vec<NullString>, we don't need structs for them
     pub item_tags: Option<ItemTags>,
@@ -197,11 +205,14 @@ impl LuxologyFile {
             return Err(ParseError::SizeMismatch);
         }
 
+        let mut preview = None;
         let mut description = None;
         let mut version = None;
         let mut application_version = None;
         let mut encoding = None;
         let mut included_subscene = None;
+        let mut subscenes = vec![];
+        let mut references = vec![];
         let mut item_tags = None;
         let mut channel_names = None;
 
@@ -243,6 +254,7 @@ impl LuxologyFile {
             }
 
             match chunk_header.kind.as_str() {
+                "PRVW" => preview = Some(Preview::read_be_args(&mut reader, (chunk_header.size,))?),
                 "DESC" => description = Some(Description::read_be(&mut reader)?),
                 "VRSN" => version = Some(Version::read_be(&mut reader)?),
                 "APPV" => application_version = Some(ApplicationVersion::read_be(&mut reader)?),
@@ -253,6 +265,8 @@ impl LuxologyFile {
                         chunk_header.size,
                     )?)
                 }
+                "SUBS" => subscenes.push(Subscene::read_be_args(&mut reader, chunk_header.size)?),
+                "XREF" => references.push(Reference::read_be(&mut reader)?),
                 "TAGS" => item_tags = Some(ItemTags::read_be_args(&mut reader, chunk_header.size)?),
                 "CHNM" => {
                     channel_names =
@@ -403,7 +417,7 @@ impl LuxologyFile {
             let consumed = reader.stream_position()? - chunk_start_position as u64 - 8;
             if consumed != chunk_header.size as u64 {
                 return Err(ParseError::ChunkBoundaryMismatch {
-                    kind: chunk_header.kind,
+                    kind: chunk_header.kind.to_string(),
                     expected: chunk_header.size,
                     consumed,
                 });
@@ -412,11 +426,14 @@ impl LuxologyFile {
 
         Ok(LuxologyFile {
             header,
+            preview,
             description,
             version,
             application_version,
             encoding,
             included_subscene,
+            subscenes,
+            references,
             item_tags,
             channel_names,
             layers,
