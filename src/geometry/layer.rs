@@ -2,7 +2,7 @@ use crate::primitives::{ID4, Point, VX, read_vx_from_bytes};
 use crate::utils::read_aligned_nullstring;
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{
-    BinRead, BinWrite, BinResult, Endian, NullString,
+    BinRead, BinResult, BinWrite, Endian, NullString,
     io::{Read, Seek, Write},
 };
 use bitflags::bitflags;
@@ -103,7 +103,6 @@ pub struct Layer {
     // floats. So can only assume they should be combined into one 3x3 matrix
     // pub scale_pivot: [f32; 3],
     // pub unused: [u32; 6],
-
     pub reference: u32,
     pub spline_patch_level: u16,
     pub future_expansion: [u16; 3],
@@ -351,6 +350,14 @@ fn read_polygon_from_bytes(buf: &[u8], kind: ID4) -> Result<(Polygon, usize), bi
     ))
 }
 
+/// Each polygon is defined by a vertex count followed by a list of indices into the most recent PNTS chunk.
+///
+/// For writing POLS, the vertex list for each polygon should begin at a convex vertex and proceed clockwise
+/// as seen from the visible side. Polygons are single-sided (double-sidedness is a possible surface property),
+/// and the normal is defined as the cross product of the first and last edges.
+///
+/// Starting from version 701, HCRV & BCRV chunks, and from version 801, the LINE chunk,
+/// utilize a separate 'flags' U4, which allows the vertex count to be represented by a full U2.
 #[derive(BinWrite, Debug)]
 pub struct PolygonList {
     pub kind: ID4,
@@ -762,7 +769,10 @@ mod tests {
 
         assert_eq!(pols.kind, "HCRV");
         assert_eq!(pols.polygons.len(), 1);
-        assert_eq!(pols.polygons[0].flags.unwrap() as u8, CurveHandle::Start.bits());
+        assert_eq!(
+            pols.polygons[0].flags.unwrap() as u8,
+            CurveHandle::Start.bits()
+        );
 
         // Check that we have read all bytes
         assert_eq!(
@@ -786,7 +796,10 @@ mod tests {
 
         assert_eq!(pols.kind, "HCRV");
         assert_eq!(pols.polygons.len(), 1);
-        assert_eq!(pols.polygons[0].flags.unwrap() as u8, CurveHandle::End.bits());
+        assert_eq!(
+            pols.polygons[0].flags.unwrap() as u8,
+            CurveHandle::End.bits()
+        );
 
         // Check that we have read all bytes
         assert_eq!(
@@ -811,7 +824,10 @@ mod tests {
 
         assert_eq!(pols.kind, "HCRV");
         assert_eq!(pols.polygons.len(), 1);
-        assert_eq!(pols.polygons[0].flags.unwrap() as u8, CurveHandle::Closed.bits());
+        assert_eq!(
+            pols.polygons[0].flags.unwrap() as u8,
+            CurveHandle::Closed.bits()
+        );
 
         // Check that we have read all bytes
         assert_eq!(
@@ -823,6 +839,119 @@ mod tests {
 
     #[test]
     fn curve_closed_filled() {}
+
+    #[test]
+    fn text_pols_hello_world() {
+        // This is hex dump from a layer and all it's data chunks where a text was created,
+        // with Hello, World! as content with default settings. Font might differ depending
+        // what is available on the system?
+        let mut reader = Cursor::new([
+            0x54, 0x41, 0x47, 0x53, 0x00, 0x00, 0x00, 0x5a, 0x4c, 0x42, 0x00, 0x00, 0x48, 0x65,
+            0x6c, 0x6c, 0x6f, 0x2c, 0x20, 0x57, 0x6f, 0x72, 0x6c, 0x64, 0x21, 0x00, 0x74, 0x65,
+            0x78, 0x74, 0x00, 0x00, 0x40, 0x54, 0x3a, 0x38, 0x35, 0x31, 0x34, 0x6f, 0x65, 0x6d,
+            0x20, 0x4e, 0x6f, 0x72, 0x6d, 0x61, 0x6c, 0x3a, 0x38, 0x35, 0x31, 0x34, 0x6f, 0x65,
+            0x6d, 0x2c, 0x31, 0x30, 0x30, 0x30, 0x2c, 0x2d, 0x31, 0x2c, 0x35, 0x2c, 0x35, 0x30,
+            0x2c, 0x30, 0x2c, 0x30, 0x2c, 0x30, 0x2c, 0x30, 0x2c, 0x30, 0x00, 0x00, 0x44, 0x65,
+            0x66, 0x61, 0x75, 0x6c, 0x74, 0x00, 0x44, 0x65, 0x66, 0x61, 0x75, 0x6c, 0x74, 0x00,
+            0x4c, 0x41, 0x59, 0x52, 0x00, 0x00, 0x00, 0x5a, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff,
+            0x40, 0x00, 0x00, 0x00, 0x3d, 0xb2, 0xb8, 0xc2, 0x3f, 0x80, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x01, 0x00, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+            0x50, 0x4e, 0x54, 0x53, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00,
+            0x80, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00,
+            0x00, 0x00, 0x42, 0x42, 0x4f, 0x58, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00, 0x3f, 0x80,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x56, 0x4d, 0x50, 0x41, 0x00, 0x00, 0x00, 0x08,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x56, 0x4d, 0x41, 0x50, 0x00, 0x00,
+            0x00, 0x10, 0x42, 0x53, 0x50, 0x4c, 0x00, 0x01, 0x42, 0x2d, 0x53, 0x70, 0x6c, 0x69,
+            0x6e, 0x65, 0x00, 0x00, 0x50, 0x4f, 0x4c, 0x53, 0x00, 0x00, 0x00, 0x0c, 0x54, 0x45,
+            0x58, 0x54, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x50, 0x54, 0x41, 0x47,
+            0x00, 0x00, 0x00, 0x08, 0x4d, 0x41, 0x54, 0x52, 0x00, 0x00, 0x00, 0x05, 0x50, 0x54,
+            0x41, 0x47, 0x00, 0x00, 0x00, 0x08, 0x50, 0x41, 0x52, 0x54, 0x00, 0x00, 0x00, 0x04,
+            0x50, 0x54, 0x41, 0x47, 0x00, 0x00, 0x00, 0x08, 0x46, 0x4f, 0x4e, 0x54, 0x00, 0x00,
+            0x00, 0x03, 0x50, 0x54, 0x41, 0x47, 0x00, 0x00, 0x00, 0x08, 0x4a, 0x55, 0x53, 0x54,
+            0x00, 0x00, 0x00, 0x00, 0x50, 0x54, 0x41, 0x47, 0x00, 0x00, 0x00, 0x08, 0x54, 0x45,
+            0x58, 0x54, 0x00, 0x00, 0x00, 0x01,
+        ]);
+
+        let tags_header = ChunkHeader::read_be(&mut reader).unwrap();
+        let itags = crate::meta::ItemTags::read_be_args(&mut reader, tags_header.size).unwrap();
+
+        assert_eq!(itags.tags.len(), 6);
+        assert_eq!(itags.tags[0], "LB".into());
+        assert_eq!(itags.tags[1], "Hello, World!".into());
+        assert_eq!(itags.tags[2], "text".into());
+        assert_eq!(
+            itags.tags[3],
+            "@T:8514oem Normal:8514oem,1000,-1,5,50,0,0,0,0,0".into()
+        );
+        assert_eq!(itags.tags[4], "Default".into());
+        assert_eq!(itags.tags[5], "Default".into());
+
+        let _layer_header = ChunkHeader::read_be(&mut reader).unwrap();
+        let _layer = Layer::read_be(&mut reader).unwrap();
+
+        let points_header = ChunkHeader::read_be(&mut reader).unwrap();
+        let points = Points::read_be_args(&mut reader, (points_header.size / 12,)).unwrap();
+        assert_eq!(points.len(), 3);
+
+        let _bounds_header = ChunkHeader::read_be(&mut reader).unwrap();
+        let bounds = BoundingBox::read_be(&mut reader).unwrap();
+
+        assert_eq!(bounds.min, [0.0, 0.0, 0.0].into());
+        assert_eq!(bounds.max, [1.0, 1.0, 0.0].into());
+
+        let _vmap_params_header = ChunkHeader::read_be(&mut reader).unwrap();
+        let _vmap_params = VertexMapParameter::read_be(&mut reader).unwrap();
+
+        let vmap_header = ChunkHeader::read_be(&mut reader).unwrap();
+        let vmap = VertexMap::read_be_args(&mut reader, vmap_header.size).unwrap();
+
+        assert_eq!(vmap.kind, "BSPL");
+        assert_eq!(vmap.dimension, 1);
+        assert_eq!(vmap.name, "B-Spline".into());
+        assert!(vmap.data.is_empty());
+
+        let polygons_header = ChunkHeader::read_be(&mut reader).unwrap();
+        let polygons = PolygonList::read_be_args(&mut reader, polygons_header.size).unwrap();
+
+        assert_eq!(polygons.kind, "TEXT");
+        assert_eq!(polygons.polygons.len(), 1);
+
+        let _ptag_header = ChunkHeader::read_be(&mut reader).unwrap();
+        let tag0 = PolygonTagMapping::read_be_args(&mut reader, _ptag_header.size).unwrap();
+
+        assert_eq!(tag0.kind, "MATR");
+        assert_eq!(tag0.tags.get(&VX::U2(0)), Some(5u16).as_ref());
+
+        let _ptag_header = ChunkHeader::read_be(&mut reader).unwrap();
+        let tag1 = PolygonTagMapping::read_be_args(&mut reader, _ptag_header.size).unwrap();
+
+        assert_eq!(tag1.kind, "PART");
+        assert_eq!(tag1.tags.get(&VX::U2(0)), Some(4u16).as_ref());
+
+        let _ptag_header = ChunkHeader::read_be(&mut reader).unwrap();
+        let tag2 = PolygonTagMapping::read_be_args(&mut reader, _ptag_header.size).unwrap();
+
+        assert_eq!(tag2.kind, "FONT");
+        assert_eq!(tag2.tags.get(&VX::U2(0)), Some(3u16).as_ref());
+
+        let _ptag_header = ChunkHeader::read_be(&mut reader).unwrap();
+        let tag3 = PolygonTagMapping::read_be_args(&mut reader, _ptag_header.size).unwrap();
+
+        assert_eq!(tag3.kind, "JUST");
+        assert_eq!(tag3.tags.get(&VX::U2(0)), Some(0u16).as_ref());
+
+        let _ptag_header = ChunkHeader::read_be(&mut reader).unwrap();
+        let tag4 = PolygonTagMapping::read_be_args(&mut reader, _ptag_header.size).unwrap();
+
+        assert_eq!(tag4.kind, "TEXT");
+        assert_eq!(tag4.tags.get(&VX::U2(0)), Some(1u16).as_ref());
+    }
 
     #[test]
     #[ignore]

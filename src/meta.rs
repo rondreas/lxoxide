@@ -83,7 +83,7 @@ pub struct Description {
     pub kind: NullString,
     #[br(align_after = 2)]
     #[bw(align_after = 2)]
-    pub description: NullString
+    pub description: NullString,
 }
 
 // a single black pixel in PNG is 67 bytes, and we want event numbers.
