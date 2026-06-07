@@ -1,25 +1,54 @@
+//! Trisurf geometry parsing.
+//!
+//! Trisurfs are a simplified geometry representation used in Modo for "Static Mesh" items.
+//! Static meshes are non-editable, frozen objects used to streamline workflows with
+//! extremely dense meshes by removing the overhead associated with mesh editing,
+//! thereby increasing overall performance and minimizing file size.
+//!
+//! They render like regular meshes and can be positioned by regular item level transformations.
+//!
+//! This module provides the structures for parsing the corresponding IFF chunks:
+//! `3GRP`, `3SRF`, `VRTS`, `TRIS`, `VVEC`, and `TTGS`.
+
 use crate::ParseError;
 use crate::primitives::{ID4, Point};
 use crate::utils::read_aligned_nullstring;
 use binrw::{BinRead, BinResult, Endian, NullString};
 use std::io::{Read, Seek};
 
+/// Trisurf Group Header (`3GRP`).
+///
+/// The `3GRP` chunk precedes any other trisurf chunks and defines a group of
+/// `TriSurfDataHeader` (`3SRF`) chunks. Multiple groups may exist in a file.
 #[derive(Debug, BinRead)]
 pub struct TriSurfGroupHeader {
+    /// Number of trisurfs in the group. Should match the number of `3SRF` chunks following this header.
     pub trisurf_count: u32,
+    /// Item reference index that this group is associated with.
     pub item_reference: u32,
+    /// Flags for future expansion.
     pub flags: u32,
 
     #[br(ignore)]
     pub trisurfaces: Vec<TriSurfDataHeader>,
 }
 
+/// Trisurf Data Header (`3SRF`).
+///
+/// The `3SRF` chunk identifies a collection of geometry within a trisurf group.
+/// It is followed by its associated vertex positions, triangle indices,
+/// vertex vectors, and tags.
 #[derive(Debug, BinRead)]
 pub struct TriSurfDataHeader {
+    /// Number of vertices in the associated `TriSurfVertices` (`VRTS`) chunk.
     pub vertex_count: u32,
+    /// Number of triangles in the associated `TriSurfTriangles` (`TRIS`) chunk.
     pub triangle_count: u32,
+    /// Number of associated `TriSurfVertexVectors` (`VVEC`) chunks.
     pub vertex_vector_count: u32,
+    /// Number of tags in the associated `TriSurfTags` (`TTGS`) chunk.
     pub tag_count: u32,
+    /// Flags for future expansion.
     pub flags: u32,
 
     #[br(ignore)]
@@ -35,19 +64,35 @@ pub struct TriSurfDataHeader {
     pub tags: Option<TriSurfTags>,
 }
 
+/// Vertex Position Array (`VRTS`).
+///
+/// Contains an array of vertex positions for the preceding `TriSurfDataHeader`.
+/// Each vertex is represented by three floats (X, Y, Z).
 #[derive(Debug, BinRead)]
 #[br(big, import(count: u32))]
 pub struct TriSurfVertices(#[br(count = count)] pub Vec<Point>);
 
+/// Triangle Array (`TRIS`).
+///
+/// Links the vertices from the `TriSurfVertices` chunk into a series of triangles.
+/// Each triangle is represented by three unsigned integer vertex indices.
 #[derive(Debug, BinRead)]
 #[br(big, import(count: u32))]
 pub struct TriSurfTriangles(#[br(count = count*3)] pub Vec<u32>);
 
+/// Vertex Vector Array (`VVEC`).
+///
+/// Defines a vertex vector (also known as a vertex map) for a trisurf.
+/// Multiple `VVEC` chunks can be defined for a single trisurf.
 #[derive(Debug)]
 pub struct TriSurfVertexVectors {
+    /// Type of vector (e.g., `COLR` for color or `MORF` for morph).
     pub kind: ID4,
+    /// Number of components in the vector.
     pub dimensions: u32,
+    /// Name of the vector.
     pub name: NullString,
+    /// The actual vector data as an array of floats.
     pub vectors: Vec<f32>,
 }
 
@@ -100,6 +145,9 @@ impl BinRead for TriSurfVertexVectors {
     }
 }
 
+/// Tag Array (`TTGS`).
+///
+/// Defines one or more tags for a given trisurf as an array of type/value pairs.
 #[derive(Debug)]
 pub struct TriSurfTags(pub Vec<(ID4, NullString)>);
 
