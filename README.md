@@ -59,7 +59,7 @@ cargo run --example dump path/to/file.lxo
 
 The LXO format is an IFF-based chunk format derived from Lightwave's LWO2. All multi-byte values are big-endian, and data is padded to even byte boundaries.
 
-See [`docs/lxo_format_spec.md`](docs/lxo_format_spec.md) for the official Luxology format specification (v4.2).
+See [`docs/lxo_format_spec.md`](docs/lxo_format_spec.md) for the official Luxology format specification (v4.2) or more recent [Modo SDK documentation](https://learn.foundry.com/modo/developers/latest/SDK/pages/general/general/File%20Formats.html)
 
 ## Dependencies
 
@@ -67,6 +67,13 @@ See [`docs/lxo_format_spec.md`](docs/lxo_format_spec.md) for the official Luxolo
 - [thiserror](https://crates.io/crates/thiserror) – Error derive macros
 - [bitflags](https://crates.io/crates/bitflags) – Type-safe bitflags
 
-## Resources
+## Disclaimer & Attribution
 
-- [Modo SDK File Formats](https://learn.foundry.com/modo/developers/latest/SDK/pages/general/general/File%20Formats.html): Unfinished documentation for the file format, but more recent than the .pdf spec
+`lxoxide` is an independent, open-source implementation of the Luxology file formats.
+
+**Please note:**
+- This project is **not** affiliated with, sponsored by, or endorsed by The Foundry Group LLC.
+- This library was developed to provide a Rust-based parser for the Modo ecosystem.
+- Development was informed by the official [Modo SDK documentation](https://learn.foundry.com/modo/developers/latest/SDK/pages/general/general/File%20Formats.html) and observed file behaviors to resolve ambiguities within the published Luxology specifications.
+
+The Luxology format and its related trademarks are the property of The Foundry Group LLC.
