@@ -133,6 +133,9 @@ pub enum ParseError {
     #[error("Missing Trisurface Data Header 3SRF")]
     MissingTriSurfDataHeader,
 
+    #[error("Invalid XMAN mode {mode}, expected 2 or 3")]
+    InvalidXManMode { mode: u32 },
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 

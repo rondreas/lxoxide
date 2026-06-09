@@ -1,6 +1,7 @@
 use crate::primitives::SubChunkHeader;
 use crate::utils::read_aligned_nullstring;
-use binrw::{BinRead, BinResult, BinWrite, NullString};
+use binrw::{BinRead, BinResult, BinWrite, Endian, NullString};
+use bitflags::bitflags;
 use std::fmt;
 use std::io::{Read, Seek};
 
@@ -216,30 +217,101 @@ pub struct ItemReference {
     pub kind: NullString,
 }
 
-#[derive(BinRead, Debug)]
-#[br(import(size: u32))]
+/// XREF Chunk
+#[derive(Debug)]
 pub struct Reference {
-    pub subscene: u32,
-    #[br(align_after = 2)]
+    /// SUBS chunk index,
+    pub subscene_index: u32,
+
+    /// Subscene name,
     pub subscene_name: NullString,
+
     pub item_deletion: ItemDeletion,
+
     pub reference_manager: ReferenceManager,
 }
 
-// Subchunk of XREF
-#[derive(BinRead, Debug)]
-#[br(big, magic = b"IDEL")]
-pub struct ItemDeletion {
-    _size: u16,
-    #[br(count = _size / 4)]
-    pub items: Vec<u32>,
+impl BinRead for Reference {
+    type Args<'a> = u32;
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        _endian: Endian,
+        _size: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let subscene_index = u32::read_be(reader)?;
+        let subscene_name = read_aligned_nullstring(reader)?;
+
+        let idel_header = SubChunkHeader::read_be(reader)?;
+        let item_deletion = ItemDeletion::read_be_args(reader, (idel_header.size / 4,))?;
+
+        let _xman_header = SubChunkHeader::read_be(reader)?;
+        let reference_manager = ReferenceManager::read_be(reader)?;
+
+        Ok(Reference {
+            subscene_index,
+            subscene_name,
+            item_deletion,
+            reference_manager,
+        })
+    }
 }
 
+/// Subchunk IDEL for XREF
 #[derive(BinRead, Debug)]
-#[br(big, magic = b"XMAN")]
+#[br(big, import(count: u16))]
+pub struct ItemDeletion(#[br(count = count)] pub Vec<u32>);
+
+/// Subchunk XMAN for XREF
+#[derive(Debug)]
 pub struct ReferenceManager {
-    _size: u16,
     pub mode: u32,
+    pub flag: ImportFlags,
+}
+
+impl BinRead for ReferenceManager {
+    type Args<'a> = ();
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        _endian: Endian,
+        (): Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let mode = u32::read_be(reader)?;
+        let position = reader.stream_position()?;
+        let flag = match mode {
+            2 => ImportFlags::from_bits_retain(u32::read_be(reader)?),
+            3 => {
+                let mut buf = [0u8; 6];
+                reader.read_exact(&mut buf)?;
+                let bits = ((buf[0] != 0) as u32)
+                    | (((buf[1] != 0) as u32) << 1)
+                    | (((buf[2] != 0) as u32) << 2)
+                    | (((buf[3] != 0) as u32) << 3)
+                    | (((buf[4] != 0) as u32) << 4);
+                ImportFlags::from_bits_retain(bits)
+            }
+            _ => {
+                return Err(binrw::Error::Custom {
+                    pos: position,
+                    err: Box::new(crate::ParseError::InvalidXManMode { mode }),
+                });
+            }
+        };
+        Ok(ReferenceManager { mode, flag })
+    }
+}
+
+bitflags! {
+    /// Flag for XMAN subchunk in XREF
+    #[derive(Debug)]
+    pub struct ImportFlags: u32 {
+        const GraphTag = 0x1;
+        const Action = 0x2;
+        const Name = 0x4;
+        const Select = 0x8;
+        const Remove = 0x10;
+    }
 }
 
 #[derive(Debug)]
@@ -576,5 +648,26 @@ mod tests {
         assert_eq!(subscene.path, "Downloads/aaa.lxo".into());
         assert_eq!(subscene.name, "mesh".into());
         assert_eq!(subscene.item_references.len(), 8);
+    }
+
+    #[test]
+    fn reference_manager() {
+        let mut reader = Cursor::new([
+            0x58, 0x4d, 0x41, 0x4e, 0x00, 0x09, 0x00, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0x01,
+            0x00, 0x00,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        assert_eq!(header.kind, "XMAN");
+        // This does not include the padding byte it seem
+        assert_eq!(header.size, 9);
+
+        let xman = ReferenceManager::read_be(&mut reader).unwrap();
+
+        assert_eq!(xman.mode, 3);
+        assert!(
+            xman.flag
+                .contains(ImportFlags::GraphTag | ImportFlags::Action | ImportFlags::Select)
+        );
     }
 }
