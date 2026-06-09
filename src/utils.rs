@@ -37,3 +37,45 @@ where
     writer.write_all(&data)?;
     Ok(())
 }
+
+pub fn read_nullstring_from_bytes(buf: &[u8]) -> Result<(NullString, usize), binrw::Error> {
+    let null_pos = buf.iter().position(|&b| b == 0).ok_or_else(|| {
+        binrw::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "NullString missing null terminator",
+        ))
+    })?;
+    let s = NullString(buf[..null_pos].to_vec());
+    let mut offset = null_pos + 1;
+    if offset % 2 != 0 {
+        offset += 1;
+    }
+    Ok((s, offset))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nullstring_from_slice() {
+        let bytes = [0x00, 0x00, 0x61, 0x61, 0x00, 0x00, 0x61, 0x00];
+
+        let mut nullstrings: Vec<NullString> = Vec::with_capacity(3);
+        let mut offset = 0;
+        while offset < 8 {
+            let (s, o) = read_nullstring_from_bytes(&bytes[offset..]).unwrap();
+            offset += o;
+            nullstrings.push(s);
+        }
+
+        assert_eq!(
+            nullstrings,
+            vec![
+                NullString::from(""),
+                NullString::from("aa"),
+                NullString::from("a")
+            ]
+        );
+    }
+}
