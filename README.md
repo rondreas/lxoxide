@@ -2,6 +2,8 @@
 
 Rust library for parsing Luxology file formats used by Foundry's Modo 3D software.
 
+> **Early development** — the API is not yet stable and breaking changes should be expected.
+
 ## Supported Formats
 
 | Extension | Type | Description |
