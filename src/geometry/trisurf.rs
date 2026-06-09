@@ -13,14 +13,15 @@
 use crate::ParseError;
 use crate::primitives::{ID4, Point};
 use crate::utils::read_aligned_nullstring;
-use binrw::{BinRead, BinResult, Endian, NullString};
+use binrw::{BinRead, BinResult, BinWrite, Endian, NullString};
 use std::io::{Read, Seek};
+use std::ops::Deref;
 
 /// Trisurf Group Header (`3GRP`).
 ///
 /// The `3GRP` chunk precedes any other trisurf chunks and defines a group of
 /// `TriSurfDataHeader` (`3SRF`) chunks. Multiple groups may exist in a file.
-#[derive(Debug, BinRead)]
+#[derive(Debug, BinRead, BinWrite)]
 pub struct TriSurfGroupHeader {
     /// Number of trisurfs in the group. Should match the number of `3SRF` chunks following this header.
     pub trisurf_count: u32,
@@ -38,7 +39,7 @@ pub struct TriSurfGroupHeader {
 /// The `3SRF` chunk identifies a collection of geometry within a trisurf group.
 /// It is followed by its associated vertex positions, triangle indices,
 /// vertex vectors, and tags.
-#[derive(Debug, BinRead)]
+#[derive(Debug, BinRead, BinWrite)]
 pub struct TriSurfDataHeader {
     /// Number of vertices in the associated `TriSurfVertices` (`VRTS`) chunk.
     pub vertex_count: u32,
@@ -68,7 +69,7 @@ pub struct TriSurfDataHeader {
 ///
 /// Contains an array of vertex positions for the preceding `TriSurfDataHeader`.
 /// Each vertex is represented by three floats (X, Y, Z).
-#[derive(Debug, BinRead)]
+#[derive(Debug, BinRead, BinWrite)]
 #[br(big, import(count: u32))]
 pub struct TriSurfVertices(#[br(count = count)] pub Vec<Point>);
 
@@ -76,7 +77,7 @@ pub struct TriSurfVertices(#[br(count = count)] pub Vec<Point>);
 ///
 /// Links the vertices from the `TriSurfVertices` chunk into a series of triangles.
 /// Each triangle is represented by three unsigned integer vertex indices.
-#[derive(Debug, BinRead)]
+#[derive(Debug, BinRead, BinWrite)]
 #[br(big, import(count: u32))]
 pub struct TriSurfTriangles(#[br(count = count*3)] pub Vec<u32>);
 
@@ -84,13 +85,14 @@ pub struct TriSurfTriangles(#[br(count = count*3)] pub Vec<u32>);
 ///
 /// Defines a vertex vector (also known as a vertex map) for a trisurf.
 /// Multiple `VVEC` chunks can be defined for a single trisurf.
-#[derive(Debug)]
+#[derive(Debug, BinWrite)]
 pub struct TriSurfVertexVectors {
     /// Type of vector (e.g., `COLR` for color or `MORF` for morph).
     pub kind: ID4,
     /// Number of components in the vector.
     pub dimensions: u32,
     /// Name of the vector.
+    #[bw(align_after = 2)]
     pub name: NullString,
     /// The actual vector data as an array of floats.
     pub vectors: Vec<f32>,
@@ -145,11 +147,26 @@ impl BinRead for TriSurfVertexVectors {
     }
 }
 
+#[derive(Debug, BinWrite, BinRead)]
+pub struct TriSurfTag {
+    pub kind: ID4,
+    #[br(align_after = 2)]
+    #[bw(align_after = 2)]
+    pub name: NullString,
+}
+
 /// Tag Array (`TTGS`).
 ///
 /// Defines one or more tags for a given trisurf as an array of type/value pairs.
-#[derive(Debug)]
-pub struct TriSurfTags(pub Vec<(ID4, NullString)>);
+#[derive(Debug, BinWrite)]
+pub struct TriSurfTags(pub Vec<TriSurfTag>);
+
+impl Deref for TriSurfTags {
+    type Target = Vec<TriSurfTag>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl BinRead for TriSurfTags {
     type Args<'a> = u32;
@@ -159,14 +176,37 @@ impl BinRead for TriSurfTags {
         _endian: Endian,
         size: Self::Args<'_>,
     ) -> BinResult<Self> {
-        let mut tags = Vec::new();
+        let size = size as usize;
+        let start = reader.stream_position()? as usize;
+        let mut buf = vec![0u8; size];
+        reader.read_exact(&mut buf)?;
 
-        let start = reader.stream_position()?;
-        while reader.stream_position()? - start < size as u64 {
-            let kind = ID4::read_be(reader)?;
-            let name = read_aligned_nullstring(reader)?;
+        let mut tags = vec![];
+        let mut offset: usize = 0;
+        while offset < size {
+            let kind = ID4::from_bytes([
+                buf[offset],
+                buf[offset + 1],
+                buf[offset + 2],
+                buf[offset + 3],
+            ])
+            .map_err(|e| binrw::Error::Custom {
+                pos: (start + offset) as u64,
+                err: Box::new(e),
+            })?;
+            offset += 4;
 
-            tags.push((kind, name));
+            let index = buf[offset..]
+                .iter()
+                .position(|&c| c == 0u8)
+                .ok_or_else(|| binrw::Error::Custom {
+                    pos: (start + offset) as u64,
+                    err: Box::new(ParseError::MissingNullTerminator),
+                })?;
+            let name = NullString(buf[offset..offset + index].to_vec());
+            offset += (index + 1) + ((index + 1) & 1);
+
+            tags.push(TriSurfTag { kind, name })
         }
 
         Ok(TriSurfTags(tags))
@@ -237,5 +277,55 @@ mod tests {
         assert_eq!(data.vertex_vector_count, 4);
         assert_eq!(data.tag_count, 2);
         assert_eq!(data.flags, 0);
+    }
+
+    #[test]
+    fn trisurf_tags_various_lengths() {
+        // This is a synthetic test, so if we find a better true chunk to use replace this test
+        let mut reader = Cursor::new([
+            0x54, 0x54, 0x47, 0x53, 0x00, 0x00, 0x00, 0x14, 0x4D, 0x41, 0x54, 0x52, 0x00, 0x00,
+            0x50, 0x41, 0x52, 0x54, 0x41, 0x00, 0x4D, 0x41, 0x54, 0x52, 0x41, 0x42, 0x00, 0x00,
+        ]);
+
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        let tags = TriSurfTags::read_be_args(&mut reader, header.size).unwrap();
+
+        assert_eq!(tags.len(), 3);
+        assert_eq!(tags[0].kind, "MATR");
+        assert!(tags[0].name.is_empty());
+
+        assert_eq!(tags[1].kind, "PART");
+        assert_eq!(tags[1].name, NullString("A".into()));
+
+        assert_eq!(tags[2].name, NullString("AB".into()));
+
+        let mut writer = Cursor::new(vec![]);
+        header.write_be(&mut writer).unwrap();
+        tags.write_be(&mut writer).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
+    }
+
+    #[test]
+    fn unnamed_material_and_part_trisurf_tags() {
+        let mut reader = Cursor::new([
+            0x54, 0x54, 0x47, 0x53, 0x00, 0x00, 0x00, 0x0c, 0x4d, 0x41, 0x54, 0x52, 0x00, 0x00,
+            0x50, 0x41, 0x52, 0x54, 0x00, 0x00,
+        ]);
+
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        let tags = TriSurfTags::read_be_args(&mut reader, header.size).unwrap();
+
+        assert_eq!(tags[0].kind, "MATR");
+        assert!(tags[0].name.is_empty());
+
+        assert_eq!(tags[1].kind, "PART");
+        assert!(tags[1].name.is_empty());
+
+        let mut writer = Cursor::new(vec![]);
+        header.write_be(&mut writer).unwrap();
+        tags.write_be(&mut writer).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 }
