@@ -27,14 +27,14 @@ impl fmt::Display for EnvelopeKind {
 bitflags! {
     #[derive(Debug, PartialEq, Eq)]
     pub struct Slope: u16 {
-            const Direct        = 0b0000_0000;
-            const Automatic     = 0b0000_0001;
-            const LinearIn      = 0b0000_0010;
-            const LinearOut     = 0b0000_0100;
-            const Flat          = 0b0000_1000;
-            const AutoFlat      = 0b0001_0000;
-            const Stepped       = 0b0010_0000;
-            const SmoothFlat    = 0b0100_0000;
+            const Direct        = 0b0000_0001;
+            const Automatic     = 0b0000_0010;
+            const LinearIn      = 0b0000_0100;
+            const LinearOut     = 0b0000_1000;
+            const Flat          = 0b0001_0000;
+            const AutoFlat      = 0b0010_0000;
+            const Stepped       = 0b0100_0000;
+            const SmoothFlat    = 0b1000_0000;
     }
 }
 
@@ -517,13 +517,13 @@ mod tests {
         assert_eq!(envelope.key, Key::new(0.0, 1.0));
         assert_eq!(
             envelope.tangent_in,
-            TangentIn::new(Slope::SmoothFlat, Weight::Manual, 0.0, 0.0, 1.0)
+            TangentIn::new(Slope::Stepped, Weight::Manual, 0.0, 0.0, 1.0)
         );
         assert_eq!(
             envelope.tangent_out,
             TangentOut::new(
                 Break::Value,
-                Slope::SmoothFlat,
+                Slope::Stepped,
                 Weight::Manual,
                 0.0,
                 0.0,
