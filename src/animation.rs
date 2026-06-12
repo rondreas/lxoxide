@@ -521,14 +521,7 @@ mod tests {
         );
         assert_eq!(
             envelope.tangent_out,
-            TangentOut::new(
-                Break::Value,
-                Slope::Stepped,
-                Weight::Manual,
-                0.0,
-                0.0,
-                0.0
-            )
+            TangentOut::new(Break::Value, Slope::Stepped, Weight::Manual, 0.0, 0.0, 0.0)
         );
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 8).into());
