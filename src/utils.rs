@@ -1,4 +1,4 @@
-use crate::primitives::{ID4, SubChunkHeader};
+use crate::primitives::{ChunkHeader, ID4, SubChunkHeader};
 use binrw::{BinRead, BinResult, BinWrite, NullString};
 use std::io::{Cursor, Read, Seek, Write};
 
@@ -28,10 +28,40 @@ where
 {
     let mut buf = Cursor::new(Vec::new());
     value.write_be(&mut buf)?;
-    let data = buf.into_inner();
+    let mut data = buf.into_inner();
+    
+    if data.len() % 2 != 0 {
+        data.push(0);
+    }
+
     SubChunkHeader {
         kind,
         size: data.len() as u16,
+    }
+    .write_be(writer)?;
+    writer.write_all(&data)?;
+    Ok(())
+}
+
+pub fn write_chunk<W: Write + Seek, T: BinWrite>(
+    writer: &mut W,
+    kind: ID4,
+    value: &T,
+) -> BinResult<()>
+where
+    for<'a> T::Args<'a>: Default,
+{
+    let mut buf = Cursor::new(Vec::new());
+    value.write_be(&mut buf)?;
+    let mut data = buf.into_inner();
+    
+    if data.len() % 2 != 0 {
+        data.push(0);
+    }
+    
+    ChunkHeader {
+        kind,
+        size: data.len() as u32,
     }
     .write_be(writer)?;
     writer.write_all(&data)?;
