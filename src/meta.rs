@@ -433,6 +433,23 @@ impl BinRead for ChannelNames {
     }
 }
 
+impl BinWrite for ChannelNames {
+    type Args<'a> = ();
+
+    fn write_options<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        _endian: Endian,
+        (): Self::Args<'_>,
+    ) -> BinResult<()> {
+        (self.names.len() as u32).write_be(writer)?;
+        for name in &self.names {
+            write_aligned_nullstring(writer, name)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(BinRead, Debug)]
 #[br(big)]
 pub struct Parent {
