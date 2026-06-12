@@ -881,16 +881,16 @@ mod tests {
         let tags_header = ChunkHeader::read_be(&mut reader).unwrap();
         let itags = crate::meta::ItemTags::read_be_args(&mut reader, tags_header.size).unwrap();
 
-        assert_eq!(itags.tags.len(), 6);
-        assert_eq!(itags.tags[0], "LB".into());
-        assert_eq!(itags.tags[1], "Hello, World!".into());
-        assert_eq!(itags.tags[2], "text".into());
+        assert_eq!(itags.len(), 6);
+        assert_eq!(itags[0], "LB".into());
+        assert_eq!(itags[1], "Hello, World!".into());
+        assert_eq!(itags[2], "text".into());
         assert_eq!(
-            itags.tags[3],
+            itags[3],
             "@T:8514oem Normal:8514oem,1000,-1,5,50,0,0,0,0,0".into()
         );
-        assert_eq!(itags.tags[4], "Default".into());
-        assert_eq!(itags.tags[5], "Default".into());
+        assert_eq!(itags[4], "Default".into());
+        assert_eq!(itags[5], "Default".into());
 
         let _layer_header = ChunkHeader::read_be(&mut reader).unwrap();
         let _layer = Layer::read_be(&mut reader).unwrap();

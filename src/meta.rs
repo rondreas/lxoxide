@@ -1,9 +1,10 @@
 use crate::primitives::{ID4, SubChunkHeader};
-use crate::utils::{read_aligned_nullstring, write_subchunk};
+use crate::utils::{read_aligned_nullstring, write_aligned_nullstring, write_subchunk};
 use binrw::{BinRead, BinResult, BinWrite, Endian, NullString};
 use bitflags::bitflags;
 use std::fmt;
 use std::io::{Read, Seek, Write};
+use std::ops::Deref;
 use std::str::FromStr;
 
 #[derive(BinRead, BinWrite, Debug, PartialEq)]
@@ -346,9 +347,17 @@ bitflags! {
     }
 }
 
-#[derive(Debug)]
-pub struct ItemTags {
-    pub tags: Vec<NullString>,
+/// Item Tags (`TAGS`)
+///
+/// List of string tags that can be associated with PTAG in layers, like material names
+#[derive(Debug, PartialEq, Eq)]
+pub struct ItemTags(pub Vec<NullString>);
+
+impl Deref for ItemTags {
+    type Target = Vec<NullString>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl BinRead for ItemTags {
@@ -368,7 +377,23 @@ impl BinRead for ItemTags {
             .map(|s| NullString(s.to_vec()))
             .collect();
 
-        Ok(ItemTags { tags })
+        Ok(ItemTags(tags))
+    }
+}
+
+impl BinWrite for ItemTags {
+    type Args<'a> = ();
+
+    fn write_options<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        _endian: Endian,
+        (): Self::Args<'_>,
+    ) -> BinResult<()> {
+        for tag in &self.0 {
+            write_aligned_nullstring(writer, tag)?;
+        }
+        Ok(())
     }
 }
 
@@ -562,7 +587,9 @@ mod tests {
     }
 
     #[test]
-    fn test_item_tags() {
+    fn default_material_and_part_item_tags() {
+        // A newly made lxo scene will likely contain at least two tags, one for the default
+        // material (MATR) and one for the default selection set (PART)
         let mut reader = Cursor::new([
             0x54, 0x41, 0x47, 0x53, 0x00, 0x00, 0x00, 0x10, 0x44, 0x65, 0x66, 0x61, 0x75, 0x6c,
             0x74, 0x00, 0x44, 0x65, 0x66, 0x61, 0x75, 0x6c, 0x74, 0x00,
@@ -572,9 +599,12 @@ mod tests {
         let itags = ItemTags::read_be_args(&mut reader, header.size).unwrap();
 
         assert_eq!(
-            itags.tags,
+            *itags,
             vec![NullString("Default".into()), NullString("Default".into())]
         );
+
+        let mut writer = Cursor::new(vec![]);
+        write_chunk(&mut writer, ID4::from_str("TAGS").unwrap(), &itags).unwrap();
     }
 
     #[test]
