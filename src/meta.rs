@@ -1,3 +1,11 @@
+//! Meta chunks parsing.
+//!
+//! Chunks that are found at the start of a file with information of which version and application,
+//! encoding used for strings. Preview image and information about references. Tags and Channel
+//! names, storing information such as material names, and names for channels used to save on space.
+//!
+//! This module provides structures for parsing the corresponding IFF chunks:
+//! `PRVW`, `DESC`, `VRSN`, `APPV`, `IASS`, `SUBS`, `XREF`, `TAGS`, `CHNM`
 use crate::primitives::{ID4, SubChunkHeader};
 use crate::utils::{read_aligned_nullstring, write_aligned_nullstring, write_subchunk};
 use binrw::{BinRead, BinResult, BinWrite, Endian, NullString};
