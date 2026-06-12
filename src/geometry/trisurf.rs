@@ -176,37 +176,10 @@ impl BinRead for TriSurfTags {
         _endian: Endian,
         size: Self::Args<'_>,
     ) -> BinResult<Self> {
-        let size = size as usize;
-        let start = reader.stream_position()? as usize;
-        let mut buf = vec![0u8; size];
-        reader.read_exact(&mut buf)?;
-
+        let start = reader.stream_position()?;
         let mut tags = vec![];
-        let mut offset: usize = 0;
-        while offset < size {
-            let kind = ID4::from_bytes([
-                buf[offset],
-                buf[offset + 1],
-                buf[offset + 2],
-                buf[offset + 3],
-            ])
-            .map_err(|e| binrw::Error::Custom {
-                pos: (start + offset) as u64,
-                err: Box::new(e),
-            })?;
-            offset += 4;
-
-            let index = buf[offset..]
-                .iter()
-                .position(|&c| c == 0u8)
-                .ok_or_else(|| binrw::Error::Custom {
-                    pos: (start + offset) as u64,
-                    err: Box::new(ParseError::MissingNullTerminator),
-                })?;
-            let name = NullString(buf[offset..offset + index].to_vec());
-            offset += (index + 1) + ((index + 1) & 1);
-
-            tags.push(TriSurfTag { kind, name })
+        while (reader.stream_position()? - start) < size as u64 {
+            tags.push(TriSurfTag::read_be(reader)?);
         }
 
         Ok(TriSurfTags(tags))
