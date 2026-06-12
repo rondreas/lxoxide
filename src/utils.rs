@@ -29,7 +29,7 @@ where
     let mut buf = Cursor::new(Vec::new());
     value.write_be(&mut buf)?;
     let mut data = buf.into_inner();
-    
+
     if data.len() % 2 != 0 {
         data.push(0);
     }
@@ -54,11 +54,11 @@ where
     let mut buf = Cursor::new(Vec::new());
     value.write_be(&mut buf)?;
     let mut data = buf.into_inner();
-    
+
     if data.len() % 2 != 0 {
         data.push(0);
     }
-    
+
     ChunkHeader {
         kind,
         size: data.len() as u32,

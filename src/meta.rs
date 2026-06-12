@@ -1,9 +1,10 @@
-use crate::primitives::SubChunkHeader;
-use crate::utils::read_aligned_nullstring;
+use crate::primitives::{ID4, SubChunkHeader};
+use crate::utils::{read_aligned_nullstring, write_subchunk};
 use binrw::{BinRead, BinResult, BinWrite, Endian, NullString};
 use bitflags::bitflags;
 use std::fmt;
-use std::io::{Read, Seek};
+use std::io::{Read, Seek, Write};
+use std::str::FromStr;
 
 #[derive(BinRead, BinWrite, Debug, PartialEq)]
 #[br(big)]
@@ -103,17 +104,26 @@ pub struct Preview {
 }
 
 // Clips are apparently IASS
-#[derive(Debug, BinRead, PartialEq)]
+#[derive(Debug, BinRead, BinWrite, PartialEq)]
 pub struct Flat {
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub name: NullString,
+
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub source: NullString,
+
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub kind: NullString,
+
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub subkind: NullString,
+
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub path: NullString,
 }
 
@@ -157,11 +167,33 @@ impl BinRead for IncludeAsSubscene {
     }
 }
 
-#[derive(BinRead, Debug, PartialEq)]
+impl BinWrite for IncludeAsSubscene {
+    type Args<'a> = ();
+
+    fn write_options<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        _endian: Endian,
+        (): Self::Args<'_>,
+    ) -> BinResult<()> {
+        for reference in &self.references {
+            write_subchunk(writer, ID4::from_str("XREF").unwrap(), &reference)?;
+        }
+
+        for clip in &self.clips {
+            write_subchunk(writer, ID4::from_str("FLAT").unwrap(), &clip)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(BinRead, BinWrite, Debug, PartialEq)]
 pub struct SubsceneReference {
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub name: NullString,
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub path: NullString,
 }
 
@@ -380,6 +412,7 @@ pub struct Parent {
 mod tests {
     use super::*;
     use crate::ChunkHeader;
+    use crate::utils::write_chunk;
     use binrw::BinWriterExt;
     use std::io::Cursor;
 
@@ -608,6 +641,11 @@ mod tests {
         );
 
         assert_eq!(reader.stream_position().unwrap(), 108);
+
+        let mut writer = Cursor::new(vec![]);
+        write_chunk(&mut writer, ID4::from_str("IASS").unwrap(), &iass).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
