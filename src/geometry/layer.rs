@@ -84,6 +84,7 @@ pub enum Smoothing {
 
 #[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
+#[bw(big)]
 pub struct Layer {
     pub index: u16,
     #[br(map = |x: u16| LayerFlag::from_bits_retain(x))]
@@ -91,6 +92,7 @@ pub struct Layer {
     pub flags: LayerFlag,
     pub pivot: [f32; 3],
     #[br(align_after = 2)]
+    #[bw(align_after = 2)]
     pub name: NullString,
     pub parent: u16,
     pub subdivision_level: f32,

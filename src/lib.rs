@@ -1,7 +1,9 @@
-use binrw::{BinRead, BinReaderExt};
+use binrw::{BinRead, BinReaderExt, BinResult, BinWrite, Endian};
 use std::fs::File;
-use std::io::{BufReader, Seek};
+use std::io::{BufReader, Cursor, Seek, Write};
+use std::iter::zip;
 use std::path::Path as StdPath;
+use std::str::FromStr;
 
 pub mod animation;
 pub mod geometry;
@@ -12,6 +14,7 @@ pub mod primitives;
 pub mod utils;
 
 pub use primitives::{ChunkHeader, ID4};
+use utils::write_chunk;
 
 use animation::{Action, Envelope};
 use geometry::layer::{
@@ -29,13 +32,14 @@ use meta::{
     Reference, Subscene, Version,
 };
 
-#[derive(BinRead, Debug, Clone, Copy, PartialEq, Eq)]
-#[br(repr = u32)]
+#[derive(BinRead, BinWrite, Debug, Clone, Copy, PartialEq, Eq)]
+#[br(big, repr = u32)]
+#[bw(big, repr = u32)]
 pub enum Extension {
-    LXOB = 0x4c584f42, // scene file
-    LXPR = 0x4c585052, // preset assembly
-    LXPE = 0x4c585045, // preset environment
-    LXPM = 0x4c58504d, // preset item
+    LXOB = 0x4c584f42,
+    LXPR = 0x4c585052,
+    LXPE = 0x4c585045,
+    LXPM = 0x4c58504d,
 }
 
 impl TryFrom<u32> for Extension {
@@ -72,6 +76,22 @@ pub struct Header {
 
     #[br(big, map = Extension::from)]
     pub kind: Extension,
+}
+
+impl BinWrite for Header {
+    type Args<'a> = ();
+
+    fn write_options<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        _endian: Endian,
+        (): Self::Args<'_>,
+    ) -> BinResult<()> {
+        writer.write_all(b"FORM")?;
+        self.size.write_be(writer)?;
+        self.kind.write_be(writer)?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -447,6 +467,113 @@ impl LuxologyFile {
             data_blocks,
             audio,
         })
+    }
+
+    pub fn to_writer<W: Write + Seek>(&self, writer: &mut W) -> BinResult<()> {
+        let mut buf = Vec::new();
+        let mut bw = Cursor::new(&mut buf);
+
+        // Scene metadata
+        if let Some(ref v) = self.version {
+            write_chunk(&mut bw, ID4::from_str("VRSN").unwrap(), v)?;
+        }
+        if let Some(ref v) = self.application_version {
+            write_chunk(&mut bw, ID4::from_str("APPV").unwrap(), v)?;
+        }
+        if let Some(ref e) = self.encoding {
+            write_chunk(&mut bw, ID4::from_str("ENCO").unwrap(), e)?;
+        }
+        if let Some(ref i) = self.included_subscene {
+            write_chunk(&mut bw, ID4::from_str("IASS").unwrap(), i)?;
+        }
+        for s in &self.subscenes {
+            write_chunk(&mut bw, ID4::from_str("SUBS").unwrap(), s)?;
+        }
+        if let Some(ref t) = self.item_tags {
+            write_chunk(&mut bw, ID4::from_str("TAGS").unwrap(), t)?;
+        }
+        if let Some(ref c) = self.channel_names {
+            write_chunk(&mut bw, ID4::from_str("CHNM").unwrap(), c)?;
+        }
+        // Layer geometry
+        for layer in &self.layers {
+            write_chunk(&mut bw, ID4::from_str("LAYR").unwrap(), layer)?;
+            if let Some(ref p) = layer.geometry.points {
+                write_chunk(&mut bw, ID4::from_str("PNTS").unwrap(), p)?;
+            }
+            if let Some(ref b) = layer.geometry.bounds {
+                write_chunk(&mut bw, ID4::from_str("BBOX").unwrap(), b)?;
+            }
+            // vertex map parameters & vertex maps comes in groups, so we zip them together
+            for (vmpa, vmap) in zip(
+                &layer.geometry.vertex_map_parameters,
+                &layer.geometry.vertex_maps,
+            ) {
+                write_chunk(&mut bw, ID4::from_str("VMPA").unwrap(), vmpa)?;
+                write_chunk(&mut bw, ID4::from_str("VMAP").unwrap(), vmap)?;
+            }
+            for vmed in &layer.geometry.vertex_edge_maps {
+                write_chunk(&mut bw, ID4::from_str("VMED").unwrap(), vmed)?;
+            }
+            for group in layer.geometry.polygons.values() {
+                write_chunk(&mut bw, ID4::from_str("POLS").unwrap(), &group.polygons)?;
+                for dvm in &group.vertex_maps {
+                    write_chunk(&mut bw, ID4::from_str("VMAD").unwrap(), dvm)?;
+                }
+                for tag in &group.tags {
+                    write_chunk(&mut bw, ID4::from_str("PTAG").unwrap(), tag)?;
+                }
+            }
+        }
+        // Trisurf geometry
+        for group in &self.trisurfs {
+            write_chunk(&mut bw, ID4::from_str("3GRP").unwrap(), group)?;
+            for trisurf in &group.trisurfaces {
+                write_chunk(&mut bw, ID4::from_str("3SRF").unwrap(), trisurf)?;
+                if let Some(ref v) = trisurf.vertices {
+                    write_chunk(&mut bw, ID4::from_str("VRTS").unwrap(), v)?;
+                }
+                if let Some(ref t) = trisurf.triangles {
+                    write_chunk(&mut bw, ID4::from_str("TRIS").unwrap(), t)?;
+                }
+                for vvec in &trisurf.vectors {
+                    write_chunk(&mut bw, ID4::from_str("VVEC").unwrap(), vvec)?;
+                }
+                if let Some(ref t) = trisurf.tags {
+                    write_chunk(&mut bw, ID4::from_str("TTGS").unwrap(), t)?;
+                }
+            }
+        }
+        // Items, envelopes, actions
+        for item in &self.items {
+            write_chunk(&mut bw, ID4::from_str("ITEM").unwrap(), item)?;
+        }
+        for env in &self.envelopes {
+            write_chunk(&mut bw, ID4::from_str("ENVL").unwrap(), env)?;
+        }
+        for action in &self.actions {
+            write_chunk(&mut bw, ID4::from_str("ACTN").unwrap(), action)?;
+        }
+        // Audio
+        if let Some(ref a) = self.audio {
+            write_chunk(&mut bw, ID4::from_str("AANI").unwrap(), a)?;
+        }
+        // Write FORM header with computed size
+        // We add 4, as the extension is also counted for size,
+        let size = (buf.len() + 4) as u32;
+        let header = Header {
+            size,
+            kind: self.header.kind,
+        };
+        header.write_be(writer)?;
+        writer.write_all(&buf)?;
+        Ok(())
+    }
+
+    pub fn to_path<P: AsRef<StdPath>>(&self, path: P) -> BinResult<()> {
+        let file = File::create(path)?;
+        let mut writer = std::io::BufWriter::new(file);
+        self.to_writer(&mut writer)
     }
 }
 
