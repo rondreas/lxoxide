@@ -1,6 +1,6 @@
 use binrw::{BinRead, BinReaderExt, BinResult, BinWrite, Endian};
 use std::fs::File;
-use std::io::{BufReader, Cursor, Seek, Write};
+use std::io::{BufReader, Cursor, Read, Seek, Write, SeekFrom};
 use std::iter::zip;
 use std::path::Path as StdPath;
 use std::str::FromStr;
@@ -214,17 +214,13 @@ impl LuxologyFile {
         Ok(trisurf)
     }
 
-    pub fn from_path<P: AsRef<StdPath>>(path: P) -> Result<LuxologyFile, ParseError> {
-        let file = File::open(path)?;
-        let meta = file.metadata()?;
-        let mut reader = BufReader::new(file);
-
+    fn parse<R: Read + Seek>(reader: &mut R, total_size: u64) -> Result<LuxologyFile, ParseError> {
         let header: Header = reader.read_be()?;
 
         // Check that the reported size of content, matches file size
         // Modo will however happily go ahead and just parse the first file if we concat
         // two files. Causing the second FORM to just be dropped when saving.
-        if meta.len() != header.size as u64 + 8 {
+        if total_size != header.size as u64 + 8 {
             return Err(ParseError::SizeMismatch);
         }
 
@@ -254,7 +250,7 @@ impl LuxologyFile {
 
         loop {
             let chunk_start_position = reader.stream_position()? as i64;
-            let chunk_header = match ChunkHeader::read_be(&mut reader) {
+            let chunk_header = match ChunkHeader::read_be(reader) {
                 Ok(h) => h,
                 Err(e) => {
                     if e.is_eof() {
@@ -264,7 +260,7 @@ impl LuxologyFile {
                 }
             };
 
-            let remaining_bytes = meta.len() - chunk_start_position as u64;
+            let remaining_bytes = total_size - chunk_start_position as u64;
             if (chunk_header.size as u64 + 8) > remaining_bytes {
                 return Err(ParseError::InvalidSize);
             }
@@ -277,32 +273,32 @@ impl LuxologyFile {
             }
 
             match chunk_header.kind.as_str() {
-                "PRVW" => preview = Some(Preview::read_be_args(&mut reader, (chunk_header.size,))?),
-                "DESC" => description = Some(Description::read_be(&mut reader)?),
-                "VRSN" => version = Some(Version::read_be(&mut reader)?),
-                "APPV" => application_version = Some(ApplicationVersion::read_be(&mut reader)?),
-                "ENCO" => encoding = Some(Encoding::read_be(&mut reader)?),
+                "PRVW" => preview = Some(Preview::read_be_args(reader, (chunk_header.size,))?),
+                "DESC" => description = Some(Description::read_be(reader)?),
+                "VRSN" => version = Some(Version::read_be(reader)?),
+                "APPV" => application_version = Some(ApplicationVersion::read_be(reader)?),
+                "ENCO" => encoding = Some(Encoding::read_be(reader)?),
                 "IASS" => {
                     included_subscene = Some(IncludeAsSubscene::read_be_args(
-                        &mut reader,
+                        reader,
                         chunk_header.size,
                     )?)
                 }
-                "SUBS" => subscenes.push(Subscene::read_be_args(&mut reader, chunk_header.size)?),
-                "XREF" => references.push(Reference::read_be(&mut reader)?),
-                "TAGS" => item_tags = Some(ItemTags::read_be_args(&mut reader, chunk_header.size)?),
+                "SUBS" => subscenes.push(Subscene::read_be_args(reader, chunk_header.size)?),
+                "XREF" => references.push(Reference::read_be(reader)?),
+                "TAGS" => item_tags = Some(ItemTags::read_be_args(reader, chunk_header.size)?),
                 "CHNM" => {
                     channel_names =
-                        Some(ChannelNames::read_be_args(&mut reader, chunk_header.size)?)
+                        Some(ChannelNames::read_be_args(reader, chunk_header.size)?)
                 }
-                "LAYR" => layers.push(Layer::read_be(&mut reader)?),
+                "LAYR" => layers.push(Layer::read_be(reader)?),
                 "PNTS" => {
                     layers
                         .last_mut()
                         .ok_or(ParseError::MissingLayer)?
                         .geometry
                         .points = Some(Points::read_be_args(
-                        &mut reader,
+                        reader,
                         (chunk_header.size / 12,),
                     )?);
                 }
@@ -311,7 +307,7 @@ impl LuxologyFile {
                         .last_mut()
                         .ok_or(ParseError::MissingLayer)?
                         .geometry
-                        .bounds = Some(BoundingBox::read_be(&mut reader)?);
+                        .bounds = Some(BoundingBox::read_be(reader)?);
                 }
                 "VMPA" => {
                     layers
@@ -319,7 +315,7 @@ impl LuxologyFile {
                         .ok_or(ParseError::MissingLayer)?
                         .geometry
                         .vertex_map_parameters
-                        .push(VertexMapParameter::read_be(&mut reader)?);
+                        .push(VertexMapParameter::read_be(reader)?);
                 }
                 "VMAP" => {
                     layers
@@ -327,7 +323,7 @@ impl LuxologyFile {
                         .ok_or(ParseError::MissingLayer)?
                         .geometry
                         .vertex_maps
-                        .push(VertexMap::read_be_args(&mut reader, chunk_header.size)?);
+                        .push(VertexMap::read_be_args(reader, chunk_header.size)?);
                 }
                 "VMED" => {
                     layers
@@ -335,10 +331,10 @@ impl LuxologyFile {
                         .ok_or(ParseError::MissingLayer)?
                         .geometry
                         .vertex_edge_maps
-                        .push(VertexEdgeMap::read_be_args(&mut reader, chunk_header.size)?);
+                        .push(VertexEdgeMap::read_be_args(reader, chunk_header.size)?);
                 }
                 "POLS" => {
-                    let polygons = PolygonList::read_be_args(&mut reader, chunk_header.size)?;
+                    let polygons = PolygonList::read_be_args(reader, chunk_header.size)?;
                     last_pols_kind = polygons.kind;
                     let geometry = &mut layers.last_mut().ok_or(ParseError::MissingLayer)?.geometry;
                     geometry.points.as_ref().ok_or(ParseError::MissingPoints)?;
@@ -356,7 +352,7 @@ impl LuxologyFile {
                         .ok_or(ParseError::MissingPolygonsList)?
                         .vertex_maps
                         .push(DiscontinuousVertexMap::read_be_args(
-                            &mut reader,
+                            reader,
                             chunk_header.size,
                         )?);
                 }
@@ -370,16 +366,16 @@ impl LuxologyFile {
                         .ok_or(ParseError::MissingPolygonsList)?
                         .tags
                         .push(PolygonTagMapping::read_be_args(
-                            &mut reader,
+                            reader,
                             chunk_header.size,
                         )?);
                 }
-                "3GRP" => trisurfs.push(TriSurfGroupHeader::read_be(&mut reader)?),
+                "3GRP" => trisurfs.push(TriSurfGroupHeader::read_be(reader)?),
                 "3SRF" => trisurfs
                     .last_mut()
                     .ok_or(ParseError::MissingTriSurfGroupHeader)?
                     .trisurfaces
-                    .push(TriSurfDataHeader::read_be(&mut reader)?),
+                    .push(TriSurfDataHeader::read_be(reader)?),
                 "VRTS" => {
                     let trisurf = Self::get_last_mut_trisurf(&mut trisurfs)?;
 
@@ -389,7 +385,7 @@ impl LuxologyFile {
                     }
 
                     trisurf.vertices = Some(TriSurfVertices::read_be_args(
-                        &mut reader,
+                        reader,
                         (trisurf.vertex_count,),
                     )?);
                 }
@@ -402,28 +398,28 @@ impl LuxologyFile {
                     }
 
                     trisurf.triangles = Some(TriSurfTriangles::read_be_args(
-                        &mut reader,
+                        reader,
                         (trisurf.triangle_count,),
                     )?);
                 }
                 "VVEC" => {
                     let trisurf = Self::get_last_mut_trisurf(&mut trisurfs)?;
                     trisurf.vectors.push(TriSurfVertexVectors::read_be_args(
-                        &mut reader,
+                        reader,
                         chunk_header.size,
                     )?);
                 }
                 "TTGS" => {
                     let trisurf = Self::get_last_mut_trisurf(&mut trisurfs)?;
-                    trisurf.tags = Some(TriSurfTags::read_be_args(&mut reader, chunk_header.size)?);
+                    trisurf.tags = Some(TriSurfTags::read_be_args(reader, chunk_header.size)?);
                 }
-                "ITEM" => items.push(Item::read_be_args(&mut reader, chunk_header.size)?),
-                "ENVL" => envelopes.push(Envelope::read_be(&mut reader)?),
-                "ACTN" => actions.push(Action::read_be_args(&mut reader, chunk_header.size)?),
+                "ITEM" => items.push(Item::read_be_args(reader, chunk_header.size)?),
+                "ENVL" => envelopes.push(Envelope::read_be(reader)?),
+                "ACTN" => actions.push(Action::read_be_args(reader, chunk_header.size)?),
                 "DATA" => {
-                    data_blocks.push(DataBlock::read_be_args(&mut reader, chunk_header.size)?)
+                    data_blocks.push(DataBlock::read_be_args(reader, chunk_header.size)?)
                 }
-                "AANI" => audio = Some(Audio::read_be_args(&mut reader, chunk_header.size)?),
+                "AANI" => audio = Some(Audio::read_be_args(reader, chunk_header.size)?),
                 _ => {
                     // just eprint? or keep in vec<unknowns>?
                     eprintln!(
@@ -467,6 +463,19 @@ impl LuxologyFile {
             data_blocks,
             audio,
         })
+    }
+
+    pub fn from_reader<R: Read + Seek>(reader: &mut R) -> Result<LuxologyFile, ParseError> {
+        let start = reader.stream_position()?;
+        let total_size = reader.seek(SeekFrom::End(0))?;
+        reader.seek(SeekFrom::Start(start))?;
+        Self::parse(reader, total_size - start)
+    }
+
+    pub fn from_path<P: AsRef<StdPath>>(path: P) -> Result<LuxologyFile, ParseError> {
+        let file = File::open(path)?;
+        let mut reader = BufReader::new(file);
+        Self::from_reader(&mut reader)
     }
 
     pub fn to_writer<W: Write + Seek>(&self, writer: &mut W) -> BinResult<()> {
