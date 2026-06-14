@@ -99,8 +99,9 @@ pub struct Description {
 
 /// Preview image for the scene, can be stored either from 3D View, or latest render in Modo on the
 /// scene item.
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
 #[br(import(size: u32), assert(size > (12 + 68)))]
+#[bw(big)]
 pub struct Preview {
     pub width: u16,
     pub height: u16,

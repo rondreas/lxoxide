@@ -474,6 +474,9 @@ impl LuxologyFile {
         let mut bw = Cursor::new(&mut buf);
 
         // Scene metadata
+        if let Some(ref preview) = self.preview {
+            write_chunk(&mut bw, ID4::from_str("PRVW").unwrap(), preview)?;
+        }
         if let Some(ref v) = self.version {
             write_chunk(&mut bw, ID4::from_str("VRSN").unwrap(), v)?;
         }
