@@ -18,7 +18,7 @@ use utils::write_chunk;
 
 use animation::{Action, Envelope};
 use geometry::layer::{
-    BoundingBox, DiscontinousVertexMap, Layer, Points, PolygonGroup, PolygonList,
+    BoundingBox, DiscontinuousVertexMap, Layer, Points, PolygonGroup, PolygonList,
     PolygonTagMapping, VertexEdgeMap, VertexMap, VertexMapParameter,
 };
 use geometry::trisurf::{
@@ -355,7 +355,7 @@ impl LuxologyFile {
                         .get_mut(&last_pols_kind)
                         .ok_or(ParseError::MissingPolygonsList)?
                         .vertex_maps
-                        .push(DiscontinousVertexMap::read_be_args(
+                        .push(DiscontinuousVertexMap::read_be_args(
                             &mut reader,
                             chunk_header.size,
                         )?);

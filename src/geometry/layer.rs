@@ -47,7 +47,7 @@ pub struct Multiresolution {
 #[derive(Debug)]
 pub struct PolygonGroup {
     pub polygons: PolygonList,
-    pub vertex_maps: Vec<DiscontinousVertexMap>,
+    pub vertex_maps: Vec<DiscontinuousVertexMap>,
     pub tags: Vec<PolygonTagMapping>,
 }
 
@@ -248,14 +248,14 @@ impl BinRead for VertexEdgeMap {
 }
 
 #[derive(BinWrite, Debug)]
-pub struct DiscontinousVertexMap {
+pub struct DiscontinuousVertexMap {
     pub kind: ID4,
     pub dimension: u16,
     pub name: NullString,
     pub data: Vec<(VX, VX, Vec<f32>)>,
 }
 
-impl BinRead for DiscontinousVertexMap {
+impl BinRead for DiscontinuousVertexMap {
     type Args<'a> = u32;
 
     fn read_options<R: Read + Seek>(
@@ -280,7 +280,7 @@ impl BinRead for DiscontinousVertexMap {
             data.push((vertex_index, polygon_index, values));
         }
 
-        Ok(DiscontinousVertexMap {
+        Ok(DiscontinuousVertexMap {
             kind,
             dimension,
             name,
@@ -586,7 +586,7 @@ mod tests {
         ]);
 
         let header: ChunkHeader = reader.read_be().unwrap();
-        let _vmap = DiscontinousVertexMap::read_be_args(&mut reader, header.size).unwrap();
+        let _vmap = DiscontinuousVertexMap::read_be_args(&mut reader, header.size).unwrap();
         assert_eq!(
             reader.stream_position().unwrap(),
             106,
