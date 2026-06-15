@@ -1,6 +1,6 @@
 use binrw::{BinRead, BinReaderExt, BinResult, BinWrite, Endian};
 use std::fs::File;
-use std::io::{BufReader, Cursor, Read, Seek, Write, SeekFrom};
+use std::io::{BufReader, Cursor, Read, Seek, SeekFrom, Write};
 use std::iter::zip;
 use std::path::Path as StdPath;
 use std::str::FromStr;
@@ -29,7 +29,7 @@ use item::{DataBlock, Item};
 use media::Audio;
 use meta::{
     ApplicationVersion, ChannelNames, Description, Encoding, IncludeAsSubscene, ItemTags, Preview,
-    Reference, Subscene, Version,
+    Reference, SceneTag, Subscene, Version,
 };
 
 #[derive(BinRead, BinWrite, Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,7 +181,7 @@ pub struct LuxologyFile {
     pub subscenes: Vec<Subscene>,
     pub references: Vec<Reference>,
 
-    // todo: rewrite these chunks to just be a Vec<NullString>, we don't need structs for them
+    pub scene_tags: Vec<SceneTag>,
     pub item_tags: Option<ItemTags>,
     pub channel_names: Option<ChannelNames>,
 
@@ -232,6 +232,7 @@ impl LuxologyFile {
         let mut included_subscene = None;
         let mut subscenes = vec![];
         let mut references = vec![];
+        let mut scene_tags = vec![];
         let mut item_tags = None;
         let mut channel_names = None;
 
@@ -279,17 +280,15 @@ impl LuxologyFile {
                 "APPV" => application_version = Some(ApplicationVersion::read_be(reader)?),
                 "ENCO" => encoding = Some(Encoding::read_be(reader)?),
                 "IASS" => {
-                    included_subscene = Some(IncludeAsSubscene::read_be_args(
-                        reader,
-                        chunk_header.size,
-                    )?)
+                    included_subscene =
+                        Some(IncludeAsSubscene::read_be_args(reader, chunk_header.size)?)
                 }
                 "SUBS" => subscenes.push(Subscene::read_be_args(reader, chunk_header.size)?),
                 "XREF" => references.push(Reference::read_be(reader)?),
+                "STAG" => scene_tags.push(SceneTag::read_be(reader)?),
                 "TAGS" => item_tags = Some(ItemTags::read_be_args(reader, chunk_header.size)?),
                 "CHNM" => {
-                    channel_names =
-                        Some(ChannelNames::read_be_args(reader, chunk_header.size)?)
+                    channel_names = Some(ChannelNames::read_be_args(reader, chunk_header.size)?)
                 }
                 "LAYR" => layers.push(Layer::read_be(reader)?),
                 "PNTS" => {
@@ -297,10 +296,7 @@ impl LuxologyFile {
                         .last_mut()
                         .ok_or(ParseError::MissingLayer)?
                         .geometry
-                        .points = Some(Points::read_be_args(
-                        reader,
-                        (chunk_header.size / 12,),
-                    )?);
+                        .points = Some(Points::read_be_args(reader, (chunk_header.size / 12,))?);
                 }
                 "BBOX" => {
                     layers
@@ -365,10 +361,7 @@ impl LuxologyFile {
                         .get_mut(&last_pols_kind)
                         .ok_or(ParseError::MissingPolygonsList)?
                         .tags
-                        .push(PolygonTagMapping::read_be_args(
-                            reader,
-                            chunk_header.size,
-                        )?);
+                        .push(PolygonTagMapping::read_be_args(reader, chunk_header.size)?);
                 }
                 "3GRP" => trisurfs.push(TriSurfGroupHeader::read_be(reader)?),
                 "3SRF" => trisurfs
@@ -416,9 +409,7 @@ impl LuxologyFile {
                 "ITEM" => items.push(Item::read_be_args(reader, chunk_header.size)?),
                 "ENVL" => envelopes.push(Envelope::read_be(reader)?),
                 "ACTN" => actions.push(Action::read_be_args(reader, chunk_header.size)?),
-                "DATA" => {
-                    data_blocks.push(DataBlock::read_be_args(reader, chunk_header.size)?)
-                }
+                "DATA" => data_blocks.push(DataBlock::read_be_args(reader, chunk_header.size)?),
                 "AANI" => audio = Some(Audio::read_be_args(reader, chunk_header.size)?),
                 _ => {
                     // just eprint? or keep in vec<unknowns>?
@@ -453,6 +444,7 @@ impl LuxologyFile {
             included_subscene,
             subscenes,
             references,
+            scene_tags,
             item_tags,
             channel_names,
             layers,
@@ -500,6 +492,9 @@ impl LuxologyFile {
         }
         for s in &self.subscenes {
             write_chunk(&mut bw, ID4::from_str("SUBS").unwrap(), s)?;
+        }
+        for tag in &self.scene_tags {
+            write_chunk(&mut bw, ID4::from_str("STAG").unwrap(), tag)?;
         }
         if let Some(ref t) = self.item_tags {
             write_chunk(&mut bw, ID4::from_str("TAGS").unwrap(), t)?;

@@ -207,6 +207,16 @@ pub struct SubsceneReference {
     pub path: NullString,
 }
 
+/// SceneTag `STAG`
+#[derive(Debug, BinRead, BinWrite)]
+pub struct SceneTag {
+    kind: ID4,
+
+    #[br(align_after = 2)]
+    #[bw(align_after = 2)]
+    path: NullString,
+}
+
 #[derive(BinWrite, Debug)]
 #[bw(big)]
 pub struct Subscene {
