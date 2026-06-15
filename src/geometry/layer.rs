@@ -399,9 +399,24 @@ impl BinRead for PolygonList {
     }
 }
 
+/// Polygon Tag Mapping (`PTAG`)
+///
+/// Associates tags of a given type with polygons in the most recent `POLS` chunk.
+/// The polygon is identified by an index into the `POLS` chunk, and the tag is
+/// an index into the [`crate::meta::ItemTags`] chunk.
+///
+/// Common tag types:
+/// - `MATR`: Material assignment.
+/// - `PART`: The part the polygon belongs to.
+/// - `PICK`: A selection set the polygon belongs to.
+/// - `SMGP`: The smoothing group the polygon belongs to.
+/// - `FONT`, `JUST`, `TEXT`: Used when `POLS` specifies polygons of type 'TEXT'.
+/// - `SURF`: The surface assigned to the polygon.
 #[derive(Debug)]
 pub struct PolygonTagMapping {
+    /// Tag kind, like MATR or PART
     pub kind: ID4,
+    /// Storing index into previous POLS and index into TAGS (see meta.rs ItemTags)
     pub tags: BTreeMap<VX, u16>,
 }
 
