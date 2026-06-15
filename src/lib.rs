@@ -113,7 +113,6 @@ use std::str::FromStr;
 pub mod animation;
 pub mod geometry;
 pub mod item;
-pub mod media;
 pub mod meta;
 pub mod primitives;
 pub mod utils;
@@ -131,10 +130,9 @@ use geometry::trisurf::{
     TriSurfVertices,
 };
 use item::{DataBlock, Item};
-use media::Audio;
 use meta::{
-    ApplicationVersion, ChannelNames, Description, Encoding, IncludeAsSubscene, ItemTags, Preview,
-    Reference, SceneTag, Subscene, Version,
+    ApplicationVersion, Audio, ChannelNames, Description, Encoding, IncludeAsSubscene, ItemTags,
+    Preview, Reference, SceneTag, Subscene, Version,
 };
 
 #[derive(BinRead, BinWrite, Debug, Clone, Copy, PartialEq, Eq)]

@@ -36,9 +36,9 @@ fn cube() {
     // There are no audio items, but we still have default audio settings
     assert_eq!(
         lxo.audio,
-        Some(lxoxide::media::Audio {
+        Some(lxoxide::meta::Audio {
             item: None,
-            settings: Some(lxoxide::media::AudioSettings {
+            settings: Some(lxoxide::meta::AudioSettings {
                 r#loop: 0,
                 mute: 0,
                 scrub: 1,
