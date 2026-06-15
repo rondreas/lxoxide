@@ -33,6 +33,20 @@ fn cube() {
         .count();
     assert_eq!(number_of_scenes, 1);
 
+    // There are no audio items, but we still have default audio settings
+    assert_eq!(
+        lxo.audio,
+        Some(lxoxide::media::Audio {
+            item: None,
+            settings: Some(lxoxide::media::AudioSettings {
+                r#loop: 0,
+                mute: 0,
+                scrub: 1,
+                start: 0.0,
+            }),
+        })
+    );
+
     let mut writer = Cursor::new(vec![]);
     lxo.to_writer(&mut writer).unwrap();
 

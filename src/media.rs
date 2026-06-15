@@ -4,12 +4,16 @@ use binrw::{BinRead, BinResult, BinWrite, Endian};
 use std::io::{Read, Seek, Write};
 use std::str::FromStr;
 
-// TODO: Look into making a lxo file with multiple audio files - or however one work with audio
-// in Modo.
-
-#[derive(Debug)]
+/// Audio (`AANI`)
+///
+/// Configuration for audio playback within the scene.
+///
+/// Modo does not embed audio files in the scene but links to them.
+#[derive(Debug, PartialEq)]
 pub struct Audio {
-    pub item: Option<u32>, // assuming this is index to item list
+    /// Index of the audio item in the scene's item list used for Timeline playback.
+    pub item: Option<u32>,
+    /// Playback settings for the selected audio file.
     pub settings: Option<AudioSettings>,
 }
 
@@ -66,46 +70,20 @@ impl BinWrite for Audio {
     }
 }
 
+/// Audio Settings (`AASE`)
+///
+/// Settings for audio playback synchronization and behavior. Subchunk of Audio.
 #[derive(BinRead, BinWrite, Debug, PartialEq)]
 #[br(big)]
 #[bw(big)]
 pub struct AudioSettings {
+    /// Whether the audio plays repeatedly if it is shorter than the scene's
+    /// start and end times.
     pub r#loop: u16,
+    /// Whether audio playback is suspended.
     pub mute: u16,
+    /// Whether the audio plays back when manually scrubbing the Timeline.
     pub scrub: u16,
+    /// The frame on the Timeline where the audio file begins to play back.
     pub start: f32,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::primitives::{ChunkHeader, ID4};
-    use crate::utils::write_chunk;
-    use std::io::Cursor;
-
-    #[test]
-    fn default_audio() {
-        let mut reader = Cursor::new([
-            0x41, 0x41, 0x4e, 0x49, 0x00, 0x00, 0x00, 0x10, 0x41, 0x41, 0x53, 0x45, 0x00, 0x0a,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-        ]);
-
-        let header = ChunkHeader::read_be(&mut reader).unwrap();
-        let audio = Audio::read_be_args(&mut reader, header.size).unwrap();
-
-        assert_eq!(audio.item, None);
-        assert_eq!(
-            audio.settings,
-            Some(AudioSettings {
-                r#loop: 0,
-                mute: 0,
-                scrub: 1,
-                start: 0.0
-            })
-        );
-
-        let mut writer = Cursor::new(vec![]);
-        write_chunk(&mut writer, ID4::from_str("AANI").unwrap(), &audio).unwrap();
-        assert_eq!(writer.into_inner(), reader.into_inner());
-    }
 }
