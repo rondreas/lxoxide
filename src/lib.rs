@@ -2,12 +2,12 @@
 //!
 //! `lxoxide` is a Rust library for parsing and writing Luxology (`.lxo`) files.
 //!
-//! Luxology files are the native scene format used by Modo 3D software. They are based on the 
-//! IFF (Interchange File Format) chunk structure and are heavily derived from the 
+//! Luxology files are the native scene format used by Modo 3D software. They are based on the
+//! IFF (Interchange File Format) chunk structure and are heavily derived from the
 //! Lightwave (LWO) format.
 //!
-//! This crate provides a high-level abstraction for interacting with these files, allowing 
-//! you to extract scene geometry, item properties, animation data, and metadata, as well 
+//! This crate provides a high-level abstraction for interacting with these files, allowing
+//! you to extract scene geometry, item properties, animation data, and metadata, as well
 //! as serialize modified scenes back to disk.
 //!
 //! ## Quick Start
@@ -19,7 +19,7 @@
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Load a .lxo file from disk
-//!     let scene = LuxologyFile::from_path("scene.lxo")?;
+//!     let scene = LuxologyFile::from_path("tests/fixtures/cube.lxo")?;
 //!
 //!     // Access basic metadata
 //!     if let Some(version) = scene.version {
@@ -36,50 +36,70 @@
 //!
 //! ### Scene Loading and Serialization
 //!
-//! `lxoxide` supports loading files from paths or any type implementing `Read + Seek`. 
+//! `lxoxide` supports loading files from paths or any type implementing `Read + Seek`.
 //! It can also write the internal `LuxologyFile` structure back to a file or writer.
 //!
 //! ```rust
 //! use lxoxide::LuxologyFile;
 //! use std::fs::File;
+//! use std::io::Cursor;
 //!
-//! // Load from a reader
-//! let mut file = File::open("scene.lxo")?;
-//! let scene = LuxologyFile::from_reader(&mut file)?;
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Load from a reader
+//!     let mut file = File::open("tests/fixtures/cube.lxo")?;
+//!     let scene = LuxologyFile::from_reader(&mut file)?;
 //!
-//! // Save to a path
-//! scene.to_path("output.lxo")?;
+//!     // Save to a buffer, are methods for saving path as well
+//!     let mut buffer = Vec::new();
+//!     scene.to_writer(&mut Cursor::new(&mut buffer))?;
+//!
+//!     Ok(())
+//! }
 //! ```
 //!
 //! ### Geometry Extraction
 //!
-//! The library parses both standard polygon-based geometry (`layers`) and optimized 
+//! The library parses both standard polygon-based geometry (`layers`) and optimized
 //! static meshes (`trisurfs`). As well as curves, text and subdivision surfaces.
 //!
 //! ```rust
-//! // Iterate through mesh layers
-//! for layer in &scene.layers {
-//!     println!("Layer: {}", layer.name);
-//!     if let Some(ref points) = layer.geometry.points {
-//!         println!("Points count: {}", points.len());
+//! use lxoxide::LuxologyFile;
+//!
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let scene = LuxologyFile::from_path("tests/fixtures/cube.lxo")?;
+//!
+//!     // Iterate through mesh layers
+//!     for layer in &scene.layers {
+//!         println!("Layer: {}", layer.name);
+//!         if let Some(ref points) = layer.geometry.points {
+//!             println!("Points count: {}", points.len());
+//!         }
 //!     }
+//!     Ok(())
 //! }
 //! ```
 //!
 //! ### Item and Channel Data
 //!
-//! Every object in a Modo scene is represented as an `Item`. Items contain various 
+//! Every object in a Modo scene is represented as an `Item`. Items contain various
 //! channels (scalar, vector, or string) that define their properties.
 //!
 //! ```rust
-//! for item in &scene.items {
-//!     println!("Item '{}' of type '{}'", item.name, item.item_type);
+//! use lxoxide::LuxologyFile;
+//!
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let scene = LuxologyFile::from_path("tests/fixtures/cube.lxo")?;
+//!
+//!     for item in &scene.items {
+//!         println!("Item '{}' of type '{}'", item.name, item.kind);
+//!     }
+//!     Ok(())
 //! }
 //! ```
 //!
 //! ### Animation and Actions
 //!
-//! `lxoxide` parses `Envelope` data (keyframe splines) and `Action` chunks, which 
+//! `lxoxide` parses `Envelope` data (keyframe splines) and `Action` chunks, which
 //! allow for complex animation states and overrides.
 //!
 //!
