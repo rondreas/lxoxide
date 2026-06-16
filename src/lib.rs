@@ -135,40 +135,22 @@ use meta::{
     Preview, Reference, SceneTag, Subscene, Version,
 };
 
+/// File header will contain which type of file it is.
+///
+/// | ID4 | Name | Extension |
+/// |---|---|---|
+/// | LXOB | Scene (Luxology Object) | .lxo |
+/// | LXPR | Preset | .lxp |
+/// | LXPE | Environment Preset | .lxe |
+/// | LXPM | Mesh Layer Preset | .lxl |
 #[derive(BinRead, BinWrite, Debug, Clone, Copy, PartialEq, Eq)]
 #[br(big, repr = u32)]
 #[bw(big, repr = u32)]
 pub enum Extension {
-    LXOB = 0x4c584f42,
-    LXPR = 0x4c585052,
-    LXPE = 0x4c585045,
-    LXPM = 0x4c58504d,
-}
-
-impl TryFrom<u32> for Extension {
-    type Error = ParseError;
-
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
-        match value {
-            0x4c584f42 => Ok(Extension::LXOB),
-            0x4c585052 => Ok(Extension::LXPR),
-            0x4c585045 => Ok(Extension::LXPE),
-            0x4c58504d => Ok(Extension::LXPM),
-            _ => Err(ParseError::NonSupportedExtension),
-        }
-    }
-}
-
-impl Extension {
-    pub fn from_u32(value: u32) -> Option<Self> {
-        match value {
-            0x4c584f42 => Some(Extension::LXOB),
-            0x4c585052 => Some(Extension::LXPR),
-            0x4c585045 => Some(Extension::LXPE),
-            0x4c58504d => Some(Extension::LXPM),
-            _ => None,
-        }
-    }
+    Scene = 0x4c584f42,
+    Preset = 0x4c585052,
+    Environment = 0x4c585045,
+    Mesh = 0x4c58504d,
 }
 
 #[derive(BinRead, Debug)]
@@ -697,7 +679,7 @@ mod tests {
         let mut reader = Cursor::new(b"FORM\x00\x00\x61\x6aLXOB");
         let header: Header = reader.read_be().unwrap();
 
-        assert_eq!(header.kind, Extension::LXOB);
+        assert_eq!(header.kind, Extension::Scene);
     }
 
     #[test]
@@ -706,6 +688,6 @@ mod tests {
         let mut reader = Cursor::new(b"BAD \x00\x00\x61\x6aLXOB");
         let header: Header = reader.read_be().unwrap();
 
-        assert_eq!(header.kind, Extension::LXOB);
+        assert_eq!(header.kind, Extension::Scene);
     }
 }
