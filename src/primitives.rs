@@ -5,12 +5,17 @@ use std::fmt;
 use std::io::{Read, Seek, Write};
 use std::str::FromStr;
 
+/// Variable Index (`VX`)
+///
+/// A variable length index, if less than 0xff00 it is 2 bytes. Otherwise
+/// will be 4 bytes.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VX {
     U2(u16),
     U4(u32),
 }
 
+// Helper function to read VX from a byte slice
 pub fn read_vx_from_bytes(buf: &[u8]) -> Result<(VX, usize), binrw::Error> {
     if buf.len() < 2 {
         return Err(binrw::Error::Io(std::io::Error::new(
@@ -78,6 +83,9 @@ impl fmt::Display for VX {
     }
 }
 
+/// ID4
+///
+/// 4 byte identifier of ascii printable chars. See FourCC
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ID4([u8; 4]);
 
@@ -172,6 +180,10 @@ impl fmt::Display for ID4 {
     }
 }
 
+/// Chunk Header
+///
+/// Each chunk will consist of a header with the type of chunk (`ID4`) followed
+/// by a u32 size of the data in the chunk, excluding the header.
 #[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
 #[bw(big)]
@@ -180,6 +192,10 @@ pub struct ChunkHeader {
     pub size: u32,
 }
 
+/// Sub Chunk Header
+///
+/// Chunks can contain subchunks. Sub chunk headers have a type (`ID4`) followed
+/// by a u16 size of data inside the chunk, excluding the header.
 #[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
 #[bw(big)]
