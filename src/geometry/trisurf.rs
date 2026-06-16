@@ -5,7 +5,13 @@
 //! extremely dense meshes by removing the overhead associated with mesh editing,
 //! thereby increasing overall performance and minimizing file size.
 //!
+//! They are created by converting regular mesh items, a process that freezes the mesh
+//! and triangulates all geometry, including any subdivided surfaces. Once converted,
+//! component-level mesh editing is disabled, and morph maps and deformers are removed.
+//!
 //! They render like regular meshes and can be positioned by regular item level transformations.
+//! However, they cannot be used as dynamic objects (as they produce no collision shape)
+//! or as point sources for Replicators.
 //!
 //! This module provides the structures for parsing the corresponding IFF chunks:
 //! `3GRP`, `3SRF`, `VRTS`, `TRIS`, `VVEC`, and `TTGS`.

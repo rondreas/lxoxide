@@ -39,18 +39,22 @@ bitflags! {
         const Foreground        = 0b0000_0000_0000_0100;
         const Background        = 0b0000_0000_0000_1000;
         const Boundingbox       = 0b0000_0000_0001_0000;
-        const LinearUv          = 0b0000_0000_1000_0000;
-        const Multiresolution   = 0b0010_0000_0000_0000;
+        const LinearUv          = 0b0000_0000_1000_0000; /// Applies image maps to Sub-D geometry using linear UVs
+        const Multiresolution   = 0b0010_0000_0000_0000; /// Allows stepping through subdivision levels when sculpting Pixar SDS models
         const Default           = Self::Visible.bits() | Self::Foreground.bits();
     }
 }
 
+/// Determines how to move points on the boundaries of a Catmull-Clark Subdivision Surface mesh.
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[br(repr=u16)]
 #[bw(repr=u16)]
 pub enum BoundaryRules {
+    /// All positions on the boundary are moved by the smooth rule of Pixar Subdivision Surfaces.
     SmoothAll,
+    /// Points with two incident edges (valence = 2) are moved by the crease rule; others are smoothed by two boundary edges.
     CreaseAll,
+    /// Points with two incident edges (valence = 2) are moved by the smooth rule; others are smoothed by two boundary edges.
     CreaseEdges,
 }
 
@@ -99,11 +103,22 @@ pub struct LayerGeometry {
 #[br(repr=u16)]
 #[bw(repr=u16)]
 pub enum Smoothing {
+    /// Smooths the entire layer at all times.
     AlwaysEnabled,
+    /// Disables smoothing only when a deformer is attached to the item layer.
     DisabledWithDeformers,
+    /// Eliminates smoothing for the item at all times.
     AlwaysDisabled,
 }
 
+/// Layer (`LAYR`)
+///
+/// Represents an editable geometry layer in Modo. Unlike static meshes (trisurfs),
+/// layers support full component-level editing, subdivision surfaces, morph maps,
+/// and deformers.
+///
+/// Signals the start of a new layer. All the data chunks which follow will be
+/// included in this layer until another layer chunk is encountered
 #[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
 #[bw(big)]
@@ -117,6 +132,7 @@ pub struct Layer {
     #[bw(align_after = 2)]
     pub name: NullString,
     pub parent: u16,
+    /// Specifies to what degree an SDS model is divided.
     pub subdivision_level: f32,
     pub curve_angle: f32,
 
@@ -128,15 +144,21 @@ pub struct Layer {
     // pub scale_pivot: [f32; 3],
     // pub unused: [u32; 6],
     pub reference: u32,
+    /// Controls the number of polygons used when parametrically defining a surface with curves.
     pub spline_patch_level: u16,
     pub future_expansion: [u16; 3],
     pub boundary_rules: BoundaryRules,
+    /// Sets an independent render level for subdividing the geometry only when render commands are invoked.
     pub catmull_render_level: u16,
+    /// Controls how finely a Catmull-Clark surface is subdivided.
     pub catmull_subdivision_level: u16,
+    /// Sets an independent render level for subdividing the geometry only when render commands are invoked.
     pub subdivision_render_level: u16,
     #[br(map = |x: u16| x != 0)]
     #[bw(map = |x: &bool| u16::from(*x))]
+    /// Stores normal vectors in memory to increase brush stroke performance when sculpting a multi-resolution mesh.
     pub cache_normal_vectors: bool,
+    /// Used to step through subdivision levels (up to the maximum defined by the subdivision level) when multiresolution is enabled.
     pub catmull_current_level: u16,
     pub smoothing: Smoothing,
 
@@ -148,6 +170,12 @@ pub struct Layer {
     pub geometry: LayerGeometry,
 }
 
+/// Points (`PNTS`)
+///
+/// List of x,y,z float triplets. Number of points is chunk size / 12. Must come before `VMAP`, `VMED`,
+/// `POLS` and `VMAD` which will index into this point list with a zero based variable index (`VX`)
+///
+/// Coordinate system is left handed, and coordinates are relative to the pivot point of last seen (`LAYR`) chunk.  
 #[derive(BinRead, BinWrite, Debug)]
 #[br(big, import(count: u32))]
 #[bw(big)]
@@ -160,6 +188,9 @@ impl Deref for Points {
     }
 }
 
+/// Bounding Box (`BBOX`)
+///
+/// Optional chunk storing upper and lower corner of the bounding box.
 #[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
 #[bw(big)]
@@ -179,6 +210,9 @@ pub enum UvSubdivisionKind {
     SubpatchDiscoEdges,
 }
 
+/// Vertex Map Parameters (`VMPA`)
+///
+/// Describes special properties of VMAP
 #[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
 pub struct VertexMapParameter {
@@ -186,6 +220,21 @@ pub struct VertexMapParameter {
     pub sketch_color: i32,
 }
 
+/// Vertex Map (`VMAP`)
+///
+/// Associates a set of floating-point vectors with a set of points from the most recent `PNTS` chunk.
+///
+/// Common types:
+/// - `PICK` (0): Selection set. Marks points for quick selection.
+/// - `WGHT` (1): Weight maps. Used to alter the influence of deformers.
+/// - `TXUV` (2): UV Texture maps.
+/// - `RGB` (3) / `RGBA` (4): Color maps.
+/// - `MORF` (3): Vertex displacement deltas.
+/// - `SPOT` (3): Absolute vertex displacements.
+/// - `NORM` (3): Surface normals.
+/// - `TBAS` (6): Tangent basis and bitangent.
+/// - `BSPL` (1): B-Spline weights.
+/// - `OPOS` (3): Object positions.
 #[derive(BinWrite, Debug)]
 pub struct VertexMap {
     pub kind: ID4,
@@ -227,6 +276,13 @@ impl BinRead for VertexMap {
     }
 }
 
+/// Vertex Edge Map (`VMED`)
+///
+/// Associates floating-point values with edges defined by two vertex indices from the most recent `PNTS` chunk.
+///
+/// Common types:
+/// - `SUBV` (1): Subdivision edge weights
+/// - `EPCK` (0): Edge selection sets
 #[derive(BinWrite, Debug)]
 pub struct VertexEdgeMap {
     pub kind: ID4,
@@ -269,6 +325,12 @@ impl BinRead for VertexEdgeMap {
     }
 }
 
+/// Discontinuous Vertex Map (`VMAD`)
+///
+/// Used for data that can be discontinuous at a single point (e.g., UV seams).
+/// Associates vectors with specific polygon vertices (indexed by vertex and polygon)
+/// rather than global points. Supports the mostly same types as `VMAP`, exceptions
+/// are MORF and SPOT.
 #[derive(BinWrite, Debug)]
 pub struct DiscontinuousVertexMap {
     pub kind: ID4,
