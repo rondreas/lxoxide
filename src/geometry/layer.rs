@@ -1,4 +1,4 @@
-use crate::primitives::{ID4, Point, VX, read_vx_from_bytes};
+use crate::primitives::{ID4, Point, VX};
 use crate::utils::read_aligned_nullstring;
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{
@@ -8,6 +8,28 @@ use binrw::{
 use bitflags::bitflags;
 use std::collections::BTreeMap;
 use std::ops::Deref;
+
+// Helper function to read VX from a byte slice
+fn read_vx_from_bytes(buf: &[u8]) -> Result<(VX, usize), binrw::Error> {
+    if buf.len() < 2 {
+        return Err(binrw::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "VX truncated",
+        )));
+    }
+    let a = u16::from_be_bytes([buf[0], buf[1]]);
+    if a < 0xff00 {
+        return Ok((VX::U2(a), 2));
+    }
+    if buf.len() < 4 {
+        return Err(binrw::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "VX U4 truncated",
+        )));
+    }
+    let b = u16::from_be_bytes([buf[2], buf[3]]);
+    Ok((VX::U4((((a as u32) << 16) | (b as u32)) & 0x00ff_ffff), 4))
+}
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -465,6 +487,17 @@ mod tests {
     use crate::ChunkHeader;
     use binrw::BinReaderExt;
     use std::io::Cursor;
+
+    #[test]
+    fn variable_index_from_bytes() {
+        let bytes = [0xfe, 0xff, 0xff, 0x00, 0xff, 0x00];
+
+        let (small_index, offset) = read_vx_from_bytes(&bytes[..]).unwrap();
+        let (big_index, _) = read_vx_from_bytes(&bytes[offset..]).unwrap();
+
+        assert_eq!(small_index, VX::U2(65_279));
+        assert_eq!(big_index, VX::U4(65_280));
+    }
 
     #[test]
     fn test_parse_layer_cube_lxo() {
