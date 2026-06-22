@@ -32,14 +32,31 @@ fn read_vx_from_bytes(buf: &[u8]) -> Result<(VX, usize), binrw::Error> {
 }
 
 bitflags! {
+    /// Layer Flag
+    ///
+    /// The first four bits represents the item's visibility.
+    ///
+    /// It is possible for both `VISIBLE` and `HIDDEN` to be set, in which case the layer's
+    /// visibility is in a mixed state and the true visibility is determined by the layer's
+    /// children.
+    ///
+    /// Also note that an item may be neither a `FOREGROUND` nor a `BACKGROUND` item. In that case,
+    /// it is not currently selected and thus not visible in GL. This is different from `HIDDEN`
+    /// or `VISIBLE` state; an item can still be the `FOREGROUND` or `BACKGROUND` object and 
+    /// also `HIDDEN`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct LayerFlag: u16 {
+        /// True if layer is visible in GL
         const VISIBLE           = 0b0000_0000_0000_0001;
+        /// True if layer is hidden in GL
         const HIDDEN            = 0b0000_0000_0000_0010;
+        /// Set if this layer is the foreground layer
         const FOREGROUND        = 0b0000_0000_0000_0100;
+        /// Set if this layer is the background layer
         const BACKGROUND        = 0b0000_0000_0000_1000;
+        /// Set it this layer is displayed as a bounding box only
         const BOUNDING_BOX      = 0b0000_0000_0001_0000;
-        /// Applies image maps to Sub-D geometry using linear UVs
+        /// Set to use linear interpolation of UVs on subdivision surfaces
         const LINEAR_UV         = 0b0000_0000_1000_0000;
         /// Allows stepping through subdivision levels when sculpting Pixar SDS models
         const MULTIRESOLUTION   = 0b0010_0000_0000_0000;
