@@ -115,7 +115,7 @@ pub mod geometry;
 pub mod item;
 pub mod meta;
 pub mod primitives;
-pub mod utils;
+mod utils;
 
 pub use primitives::{ChunkHeader, ID4};
 use utils::write_chunk;
