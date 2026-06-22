@@ -34,14 +34,16 @@ fn read_vx_from_bytes(buf: &[u8]) -> Result<(VX, usize), binrw::Error> {
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct LayerFlag: u16 {
-        const Visible           = 0b0000_0000_0000_0001;
-        const Hidden            = 0b0000_0000_0000_0010;
-        const Foreground        = 0b0000_0000_0000_0100;
-        const Background        = 0b0000_0000_0000_1000;
-        const Boundingbox       = 0b0000_0000_0001_0000;
-        const LinearUv          = 0b0000_0000_1000_0000; /// Applies image maps to Sub-D geometry using linear UVs
-        const Multiresolution   = 0b0010_0000_0000_0000; /// Allows stepping through subdivision levels when sculpting Pixar SDS models
-        const Default           = Self::Visible.bits() | Self::Foreground.bits();
+        const VISIBLE           = 0b0000_0000_0000_0001;
+        const HIDDEN            = 0b0000_0000_0000_0010;
+        const FOREGROUND        = 0b0000_0000_0000_0100;
+        const BACKGROUND        = 0b0000_0000_0000_1000;
+        const BOUNDING_BOX      = 0b0000_0000_0001_0000;
+        /// Applies image maps to Sub-D geometry using linear UVs
+        const LINEAR_UV         = 0b0000_0000_1000_0000;
+        /// Allows stepping through subdivision levels when sculpting Pixar SDS models
+        const MULTIRESOLUTION   = 0b0010_0000_0000_0000;
+        const DEFAULT           = Self::VISIBLE.bits() | Self::FOREGROUND.bits();
     }
 }
 
@@ -162,7 +164,7 @@ pub struct Layer {
     pub catmull_current_level: u16,
     pub smoothing: Smoothing,
 
-    #[br(if(flags.contains(LayerFlag::Multiresolution)))]
+    #[br(if(flags.contains(LayerFlag::MULTIRESOLUTION)))]
     pub multires: Option<Multiresolution>,
 
     #[br(ignore)]
@@ -585,7 +587,7 @@ mod tests {
         let layer: Layer = reader.read_be().unwrap();
 
         assert_eq!(layer.index, 0, "Failed to parse index");
-        assert_eq!(layer.flags, LayerFlag::Default);
+        assert_eq!(layer.flags, LayerFlag::DEFAULT);
         assert!(layer.name.is_empty());
         assert_eq!(layer.parent, 0xffff);
         assert_eq!(layer.subdivision_level, 2.0);
@@ -773,7 +775,7 @@ mod tests {
         let layer = Layer::read_be(&mut reader).unwrap();
 
         assert_eq!(layer.index, 2);
-        assert_eq!(layer.flags, LayerFlag::Default | LayerFlag::Multiresolution);
+        assert_eq!(layer.flags, LayerFlag::DEFAULT | LayerFlag::MULTIRESOLUTION);
         assert_eq!(layer.pivot, [0f32; 3]);
         assert_eq!(layer.name, "Multiresolution".into());
         assert_eq!(layer.parent, 0xffff);
@@ -810,7 +812,7 @@ mod tests {
         let layer = Layer::read_be(&mut reader).unwrap();
 
         assert_eq!(layer.index, 1);
-        assert_eq!(layer.flags, LayerFlag::Default | LayerFlag::Multiresolution);
+        assert_eq!(layer.flags, LayerFlag::DEFAULT | LayerFlag::MULTIRESOLUTION);
         assert_eq!(layer.pivot, [0f32; 3]);
         assert!(layer.name.is_empty());
         assert_eq!(layer.parent, 0xffff);
