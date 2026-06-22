@@ -7,7 +7,7 @@ use binrw::{
 };
 use bitflags::bitflags;
 use std::collections::BTreeMap;
-use std::ops::Deref;
+use std::iter::Iterator;
 
 // Helper function to read VX from a byte slice
 fn read_vx_from_bytes(buf: &[u8]) -> Result<(VX, usize), binrw::Error> {
@@ -181,10 +181,18 @@ pub struct Layer {
 #[bw(big)]
 pub struct Points(#[br( count = count )] pub Vec<Point>);
 
-impl Deref for Points {
-    type Target = Vec<Point>;
-    fn deref(&self) -> &Self::Target {
+impl Points {
+    pub fn as_slice(&self) -> &[Point] {
         &self.0
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &Point> {
+        self.0.iter()
+    }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -994,15 +1002,17 @@ mod tests {
         let itags = crate::meta::ItemTags::read_be_args(&mut reader, tags_header.size).unwrap();
 
         assert_eq!(itags.len(), 6);
-        assert_eq!(itags[0], "LB".into());
-        assert_eq!(itags[1], "Hello, World!".into());
-        assert_eq!(itags[2], "text".into());
         assert_eq!(
-            itags[3],
-            "@T:8514oem Normal:8514oem,1000,-1,5,50,0,0,0,0,0".into()
+            itags.as_slice(),
+            vec![
+                "LB".into(),
+                "Hello, World!".into(),
+                "text".into(),
+                "@T:8514oem Normal:8514oem,1000,-1,5,50,0,0,0,0,0".into(),
+                "Default".into(),
+                "Default".into(),
+            ]
         );
-        assert_eq!(itags[4], "Default".into());
-        assert_eq!(itags[5], "Default".into());
 
         let _layer_header = ChunkHeader::read_be(&mut reader).unwrap();
         let _layer = Layer::read_be(&mut reader).unwrap();

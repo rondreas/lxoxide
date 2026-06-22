@@ -21,7 +21,6 @@ use crate::primitives::{ID4, Point};
 use crate::utils::read_aligned_nullstring;
 use binrw::{BinRead, BinResult, BinWrite, Endian, NullString};
 use std::io::{Read, Seek};
-use std::ops::Deref;
 
 /// Trisurf Group Header (`3GRP`).
 ///
@@ -78,6 +77,21 @@ pub struct TriSurfDataHeader {
 #[derive(Debug, BinRead, BinWrite)]
 #[br(big, import(count: u32))]
 pub struct TriSurfVertices(#[br(count = count)] pub Vec<Point>);
+
+impl TriSurfVertices {
+    pub fn as_slice(&self) -> &[Point] {
+        &self.0
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &Point> {
+        self.0.iter()
+    }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
 
 /// Triangle Array (`TRIS`).
 ///
@@ -153,7 +167,7 @@ impl BinRead for TriSurfVertexVectors {
     }
 }
 
-#[derive(Debug, BinWrite, BinRead)]
+#[derive(Debug, BinWrite, BinRead, PartialEq, Eq)]
 pub struct TriSurfTag {
     pub kind: ID4,
     #[br(align_after = 2)]
@@ -167,10 +181,18 @@ pub struct TriSurfTag {
 #[derive(Debug, BinWrite)]
 pub struct TriSurfTags(pub Vec<TriSurfTag>);
 
-impl Deref for TriSurfTags {
-    type Target = Vec<TriSurfTag>;
-    fn deref(&self) -> &Self::Target {
+impl TriSurfTags {
+    pub fn as_slice(&self) -> &[TriSurfTag] {
         &self.0
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &TriSurfTag> {
+        self.0.iter()
+    }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -198,6 +220,7 @@ mod tests {
     use crate::ChunkHeader;
     use binrw::BinReaderExt;
     use std::io::Cursor;
+    use std::str::FromStr;
 
     #[test]
     fn trisurf_group_header() {
@@ -234,9 +257,9 @@ mod tests {
 
         assert_eq!(header.kind, "VRTS");
         assert_eq!(header.size, 96);
-        assert_eq!(vertices.0.len(), 8);
-        assert_eq!(vertices.0[0], Point([-0.5, -0.5, 0.5]));
-        assert_eq!(vertices.0[7], Point([0.5, 0.5, -0.5]));
+        assert_eq!(vertices.len(), 8);
+        assert_eq!(vertices.as_slice()[0], Point([-0.5, -0.5, 0.5]));
+        assert_eq!(vertices.as_slice()[7], Point([0.5, 0.5, -0.5]));
     }
 
     #[test]
@@ -270,13 +293,24 @@ mod tests {
         let tags = TriSurfTags::read_be_args(&mut reader, header.size).unwrap();
 
         assert_eq!(tags.len(), 3);
-        assert_eq!(tags[0].kind, "MATR");
-        assert!(tags[0].name.is_empty());
 
-        assert_eq!(tags[1].kind, "PART");
-        assert_eq!(tags[1].name, NullString("A".into()));
-
-        assert_eq!(tags[2].name, NullString("AB".into()));
+        assert_eq!(
+            tags.as_slice(),
+            vec![
+                TriSurfTag {
+                    kind: ID4::from_str("MATR").unwrap(),
+                    name: "".into()
+                },
+                TriSurfTag {
+                    kind: ID4::from_str("PART").unwrap(),
+                    name: "A".into()
+                },
+                TriSurfTag {
+                    kind: ID4::from_str("MATR").unwrap(),
+                    name: "AB".into()
+                },
+            ]
+        );
 
         let mut writer = Cursor::new(vec![]);
         header.write_be(&mut writer).unwrap();
@@ -295,11 +329,19 @@ mod tests {
         let header = ChunkHeader::read_be(&mut reader).unwrap();
         let tags = TriSurfTags::read_be_args(&mut reader, header.size).unwrap();
 
-        assert_eq!(tags[0].kind, "MATR");
-        assert!(tags[0].name.is_empty());
-
-        assert_eq!(tags[1].kind, "PART");
-        assert!(tags[1].name.is_empty());
+        assert_eq!(
+            tags.as_slice(),
+            vec![
+                TriSurfTag {
+                    kind: ID4::from_str("MATR").unwrap(),
+                    name: "".into()
+                },
+                TriSurfTag {
+                    kind: ID4::from_str("PART").unwrap(),
+                    name: "".into()
+                },
+            ]
+        );
 
         let mut writer = Cursor::new(vec![]);
         header.write_be(&mut writer).unwrap();

@@ -12,7 +12,6 @@ use binrw::{BinRead, BinResult, BinWrite, Endian, NullString};
 use bitflags::bitflags;
 use std::fmt;
 use std::io::{Read, Seek, Write};
-use std::ops::Deref;
 use std::str::FromStr;
 
 #[derive(BinRead, BinWrite, Debug, PartialEq)]
@@ -372,10 +371,18 @@ bitflags! {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ItemTags(pub Vec<NullString>);
 
-impl Deref for ItemTags {
-    type Target = Vec<NullString>;
-    fn deref(&self) -> &Self::Target {
+impl ItemTags {
+    pub fn as_slice(&self) -> &[NullString] {
         &self.0
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &NullString> {
+        self.0.iter()
+    }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -719,7 +726,7 @@ mod tests {
         let itags = ItemTags::read_be_args(&mut reader, header.size).unwrap();
 
         assert_eq!(
-            *itags,
+            itags.as_slice(),
             vec![NullString("Default".into()), NullString("Default".into())]
         );
 
