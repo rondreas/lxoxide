@@ -182,6 +182,7 @@ pub struct SubChunkHeader {
     pub size: u16,
 }
 
+#[repr(transparent)]
 #[derive(BinRead, BinWrite, Debug, PartialEq)]
 #[br(big)]
 #[bw(big)]
