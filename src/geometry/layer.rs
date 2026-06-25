@@ -42,7 +42,7 @@ bitflags! {
     ///
     /// Also note that an item may be neither a `FOREGROUND` nor a `BACKGROUND` item. In that case,
     /// it is not currently selected and thus not visible in GL. This is different from `HIDDEN`
-    /// or `VISIBLE` state; an item can still be the `FOREGROUND` or `BACKGROUND` object and 
+    /// or `VISIBLE` state; an item can still be the `FOREGROUND` or `BACKGROUND` object and
     /// also `HIDDEN`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct LayerFlag: u16 {
@@ -278,18 +278,34 @@ impl BinRead for VertexMap {
         _endian: Endian,
         size: Self::Args<'_>,
     ) -> BinResult<Self> {
-        let start = reader.stream_position()?;
         let kind = ID4::read_be(reader)?;
         let dimension = u16::read_be(reader)?;
         let name = read_aligned_nullstring(reader)?;
 
         let mut data = vec![];
-        while reader.stream_position()? - start < size as u64 {
-            let index = VX::read_be(reader)?;
-            let mut values: Vec<f32> = vec![0.0; dimension as usize];
-            for value in values.iter_mut() {
-                *value = f32::read_be(reader)?;
-            }
+
+        // remaining bytes in chunk
+        let data_size: usize = size as usize - (6 + ((name.len() + 2) & !1));
+
+        let mut buf = vec![0u8; data_size];
+        reader.read_exact(&mut buf)?;
+
+        let mut offset: usize = 0;
+        while offset < data_size {
+            let (index, consumed) = read_vx_from_bytes(&buf[offset..])?;
+            offset += consumed;
+            let values: Vec<f32> = buf
+                .get(offset..offset + (4 * dimension as usize))
+                .ok_or_else(|| {
+                    binrw::Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "unexpected eof",
+                    ))
+                })?
+                .chunks_exact(4)
+                .map(|b| f32::from_be_bytes(b.try_into().unwrap()))
+                .collect();
+            offset += 4 * dimension as usize;
 
             data.push((index, values));
         }
@@ -706,7 +722,19 @@ mod tests {
         assert_eq!(vmap.kind, "TXUV");
         assert_eq!(vmap.dimension, 2);
         assert_eq!(vmap.name, "Texture".into());
-        assert_eq!(vmap.data.len(), 8);
+        assert_eq!(
+            vmap.data,
+            vec![
+                (VX::U2(7), vec![0.25, 0.6666667]),
+                (VX::U2(6), vec![0.5, 0.6666667]),
+                (VX::U2(5), vec![0.75, 0.6666667]),
+                (VX::U2(4), vec![1.0, 0.6666667]),
+                (VX::U2(3), vec![0.25, 0.33333334]),
+                (VX::U2(2), vec![0.5, 0.33333334]),
+                (VX::U2(1), vec![0.5, 0.0]),
+                (VX::U2(0), vec![0.25, 0.0]),
+            ]
+        );
     }
 
     #[test]
