@@ -390,19 +390,39 @@ impl BinRead for DiscontinuousVertexMap {
         _endian: Endian,
         size: Self::Args<'_>,
     ) -> BinResult<Self> {
-        let start = reader.stream_position()?;
         let kind = ID4::read_be(reader)?;
         let dimension = u16::read_be(reader)?;
         let name = read_aligned_nullstring(reader)?;
 
         let mut data = vec![];
-        while reader.stream_position()? - start < size as u64 {
-            let vertex_index = VX::read_be(reader)?;
-            let polygon_index = VX::read_be(reader)?;
-            let mut values: Vec<f32> = vec![0.0; dimension as usize];
-            for value in values.iter_mut() {
-                *value = f32::read_be(reader)?;
-            }
+
+        // remaining bytes in chunk
+        let data_size: usize = size as usize - (6 + ((name.len() + 2) & !1));
+
+        let mut buf = vec![0u8; data_size];
+        reader.read_exact(&mut buf)?;
+
+        let mut offset: usize = 0;
+        while offset < data_size {
+            let (vertex_index, consumed) = read_vx_from_bytes(&buf[offset..])?;
+            offset += consumed;
+
+            let (polygon_index, consumed) = read_vx_from_bytes(&buf[offset..])?;
+            offset += consumed;
+
+            let values_len = 4 * dimension as usize;
+            let values: Vec<f32> = buf
+                .get(offset..offset + values_len)
+                .ok_or_else(|| {
+                    binrw::Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "unexpected eof",
+                    ))
+                })?
+                .chunks_exact(4)
+                .map(|b| f32::from_be_bytes(b.try_into().unwrap()))
+                .collect();
+            offset += values_len;
 
             data.push((vertex_index, polygon_index, values));
         }
