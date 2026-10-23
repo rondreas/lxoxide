@@ -308,15 +308,34 @@ impl BinRead for Reference {
     }
 }
 
+impl BinWrite for Reference {
+    type Args<'a> = ();
+
+    fn write_options<W: Write + Seek>(
+        &self,
+        writer: &mut W,
+        _endian: Endian,
+        (): Self::Args<'_>,
+    ) -> BinResult<()> {
+        self.subscene_index.write_be(writer)?;
+        write_aligned_nullstring(writer, &self.subscene_name)?;
+        write_subchunk(writer, ID4::from_str("IDEL").unwrap(), &self.item_deletion)?;
+        write_subchunk(writer, ID4::from_str("XMAN").unwrap(), &self.reference_manager)?;
+        Ok(())
+    }
+}
+
 /// Subchunk IDEL for XREF
-#[derive(BinRead, Debug)]
+#[derive(BinRead, BinWrite, Debug)]
 #[br(big, import(count: u16))]
+#[bw(big)]
 pub struct ItemDeletion(#[br(count = count)] pub Vec<u32>);
 
 /// Subchunk XMAN for XREF
-#[derive(Debug)]
+#[derive(BinWrite, Debug)]
 pub struct ReferenceManager {
     pub mode: u32,
+    #[bw(map = |x: &ImportFlags| x.bits())]
     pub flag: ImportFlags,
 }
 

@@ -362,9 +362,11 @@ impl BinWrite for Channels {
     }
 }
 
+#[derive(Debug, BinWrite)]
 pub struct DataBlock {
     pub index: u32,
     pub flag: u32,
+    #[bw(align_after = 2)]
     pub name: NullString,
     pub data: Vec<u8>,
 }

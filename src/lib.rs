@@ -10,103 +10,9 @@
 //! you to extract scene geometry, item properties, animation data, and metadata, as well
 //! as serialize modified scenes back to disk.
 //!
-//! ## Quick Start
-//!
-//! The easiest way to load a Modo file is using `LuxologyFile::from_path`.
-//!
-//! ```rust
-//! use lxoxide::LuxologyFile;
-//!
-//! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Load a .lxo file from disk
-//!     let scene = LuxologyFile::from_path("tests/fixtures/cube.lxo")?;
-//!
-//!     // Access basic metadata
-//!     if let Some(version) = scene.version {
-//!         println!("Scene version: {}.{}", version.major, version.minor);
-//!     }
-//!
-//!     println!("Total items in scene: {}", scene.items.len());
-//!
-//!     Ok(())
-//! }
-//! ```
-//!
-//! ## Core Capabilities
-//!
-//! ### Scene Loading and Serialization
-//!
-//! `lxoxide` supports loading files from paths or any type implementing `Read + Seek`.
-//! It can also write the internal `LuxologyFile` structure back to a file or writer.
-//!
-//! ```rust
-//! use lxoxide::LuxologyFile;
-//! use std::fs::File;
-//! use std::io::Cursor;
-//!
-//! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Load from a reader
-//!     let mut file = File::open("tests/fixtures/cube.lxo")?;
-//!     let scene = LuxologyFile::from_reader(&mut file)?;
-//!
-//!     // Save to a buffer, are methods for saving path as well
-//!     let mut buffer = Vec::new();
-//!     scene.to_writer(&mut Cursor::new(&mut buffer))?;
-//!
-//!     Ok(())
-//! }
-//! ```
-//!
-//! ### Geometry Extraction
-//!
-//! The library parses both standard polygon-based geometry (`layers`) and optimized
-//! static meshes (`trisurfs`). As well as curves, text and subdivision surfaces.
-//!
-//! ```rust
-//! use lxoxide::LuxologyFile;
-//!
-//! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let scene = LuxologyFile::from_path("tests/fixtures/cube.lxo")?;
-//!
-//!     // Iterate through mesh layers
-//!     for layer in &scene.layers {
-//!         println!("Layer: {}", layer.name);
-//!         if let Some(ref points) = layer.geometry.points {
-//!             println!("Points count: {}", points.len());
-//!         }
-//!     }
-//!     Ok(())
-//! }
-//! ```
-//!
-//! ### Item and Channel Data
-//!
-//! Every object in a Modo scene is represented as an `Item`. Items contain various
-//! channels (scalar, vector, or string) that define their properties.
-//!
-//! ```rust
-//! use lxoxide::LuxologyFile;
-//!
-//! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let scene = LuxologyFile::from_path("tests/fixtures/cube.lxo")?;
-//!
-//!     for item in &scene.items {
-//!         println!("Item '{}' of type '{}'", item.name, item.kind);
-//!     }
-//!     Ok(())
-//! }
-//! ```
-//!
-//! ### Animation and Actions
-//!
-//! `lxoxide` parses `Envelope` data (keyframe splines) and `Action` chunks, which
-//! allow for complex animation states and overrides.
-//!
-//!
 use binrw::{BinRead, BinReaderExt, BinResult, BinWrite, Endian};
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Seek, SeekFrom, Write};
-use std::iter::zip;
 use std::path::Path as StdPath;
 use std::str::FromStr;
 
@@ -122,7 +28,7 @@ use utils::write_chunk;
 
 use animation::{Action, Envelope};
 use geometry::layer::{
-    BoundingBox, DiscontinuousVertexMap, Layer, Points, PolygonGroup, PolygonList,
+    BoundingBox, DiscontinuousVertexMap, Layer, Points, PolygonList,
     PolygonTagMapping, VertexEdgeMap, VertexMap, VertexMapParameter,
 };
 use geometry::trisurf::{
@@ -248,57 +154,48 @@ pub enum ParseError {
     BinRead(#[from] binrw::Error),
 }
 
+/// Enumerator of all known chunks as well as Unknown to store unhandled chunks
+pub enum Chunk {
+    Preview(Preview),
+    Description(Description),
+    Version(Version),
+    ApplicationVersion(ApplicationVersion),
+    Encoding(Encoding),
+    IncludeAsSubscene(IncludeAsSubscene),
+    Subscene(Subscene),
+    Reference(Reference),
+    SceneTag(SceneTag),
+    ItemTags(ItemTags),
+    ChannelNames(ChannelNames),
+    Layer(Box<Layer>),
+    Points(Points),
+    BoundingBox(BoundingBox),
+    VertexMapParameter(VertexMapParameter),
+    VertexMap(VertexMap),
+    VertexEdgeMap(VertexEdgeMap),
+    PolygonList(PolygonList),
+    DiscontinuousVertexMap(DiscontinuousVertexMap),
+    PolygonTagMapping(PolygonTagMapping),
+    TriSurfGroupHeader(TriSurfGroupHeader),
+    TriSurfDataHeader(TriSurfDataHeader),
+    TriSurfVertices(TriSurfVertices),
+    TriSurfTriangles(TriSurfTriangles),
+    TriSurfVertexVectors(TriSurfVertexVectors),
+    TriSurfTags(TriSurfTags),
+    Item(Box<Item>),
+    Envelope(Envelope),
+    Action(Action),
+    DataBlock(DataBlock),
+    Audio(Audio),
+    Unknown((ChunkHeader, Vec<u8>))
+}
+
 pub struct LuxologyFile {
-    pub header: Header,
-
-    // Optional thumbnail for the scene
-    pub preview: Option<Preview>,
-
-    pub description: Option<Description>,
-    pub version: Option<Version>,
-    pub application_version: Option<ApplicationVersion>,
-    pub encoding: Option<Encoding>,
-
-    // even scenes which does not include subscenes, tend to have this chunk
-    pub included_subscene: Option<IncludeAsSubscene>,
-
-    // references are included as subscenes and references, SUBS and XREF chunks
-    pub subscenes: Vec<Subscene>,
-    pub references: Vec<Reference>,
-
-    pub scene_tags: Vec<SceneTag>,
-    pub item_tags: Option<ItemTags>,
-    pub channel_names: Option<ChannelNames>,
-
-    // geometry is a bit more complex. as first we will have a chunk saying
-    // this is a new layer/trisurf. followed by chunks that make it's data.
-    pub layers: Vec<Layer>,
-    pub trisurfs: Vec<TriSurfGroupHeader>,
-
-    pub items: Vec<Item>,
-    pub envelopes: Vec<Envelope>,
-    pub actions: Vec<Action>,
-
-    pub data_blocks: Vec<DataBlock>,
-
-    // At the end files tend to have audio
-    pub audio: Option<Audio>,
+    header: Header,
+    chunks: Vec<Chunk>,
 }
 
 impl LuxologyFile {
-    fn get_last_mut_trisurf(
-        trisurfs: &mut [TriSurfGroupHeader],
-    ) -> Result<&mut TriSurfDataHeader, ParseError> {
-        let trisurf = trisurfs
-            .last_mut()
-            .ok_or(ParseError::MissingTriSurfGroupHeader)?
-            .trisurfaces
-            .last_mut()
-            .ok_or(ParseError::MissingTriSurfDataHeader)?;
-
-        Ok(trisurf)
-    }
-
     fn parse<R: Read + Seek>(reader: &mut R, total_size: u64) -> Result<LuxologyFile, ParseError> {
         let header: Header = reader.read_be()?;
 
@@ -309,30 +206,7 @@ impl LuxologyFile {
             return Err(ParseError::SizeMismatch);
         }
 
-        let mut preview = None;
-        let mut description = None;
-        let mut version = None;
-        let mut application_version = None;
-        let mut encoding = None;
-        let mut included_subscene = None;
-        let mut subscenes = vec![];
-        let mut references = vec![];
-        let mut scene_tags = vec![];
-        let mut item_tags = None;
-        let mut channel_names = None;
-
-        let mut layers = vec![];
-        let mut trisurfs = vec![];
-        let mut items = vec![];
-        let mut envelopes = vec![];
-        let mut actions = vec![];
-        let mut data_blocks = vec![];
-
-        let mut audio = None;
-
-        // While parsing layers, we keep track of the last polygon kind as we need to match
-        // VMAD and PTAG to the previous POLS
-        let mut last_pols_kind = ID4::new(*b"UNKN");
+        let mut chunks: Vec<Chunk> = vec![];
 
         loop {
             let chunk_start_position = reader.stream_position()? as i64;
@@ -358,157 +232,48 @@ impl LuxologyFile {
                 });
             }
 
+            // todo: We should likely make all read_be_args accept size in a more uniform way
             match chunk_header.kind.as_str() {
-                "PRVW" => preview = Some(Preview::read_be_args(reader, (chunk_header.size,))?),
-                "DESC" => description = Some(Description::read_be(reader)?),
-                "VRSN" => version = Some(Version::read_be(reader)?),
-                "APPV" => application_version = Some(ApplicationVersion::read_be(reader)?),
-                "ENCO" => encoding = Some(Encoding::read_be(reader)?),
-                "IASS" => {
-                    included_subscene =
-                        Some(IncludeAsSubscene::read_be_args(reader, chunk_header.size)?)
-                }
-                "SUBS" => subscenes.push(Subscene::read_be_args(reader, chunk_header.size)?),
-                "XREF" => references.push(Reference::read_be(reader)?),
-                "STAG" => scene_tags.push(SceneTag::read_be(reader)?),
-                "TAGS" => item_tags = Some(ItemTags::read_be_args(reader, chunk_header.size)?),
-                "CHNM" => {
-                    channel_names = Some(ChannelNames::read_be_args(reader, chunk_header.size)?)
-                }
-                "LAYR" => layers.push(Layer::read_be(reader)?),
-                "PNTS" => {
-                    layers
-                        .last_mut()
-                        .ok_or(ParseError::MissingLayer)?
-                        .geometry
-                        .points = Some(Points::read_be_args(reader, (chunk_header.size / 12,))?);
-                }
-                "BBOX" => {
-                    layers
-                        .last_mut()
-                        .ok_or(ParseError::MissingLayer)?
-                        .geometry
-                        .bounds = Some(BoundingBox::read_be(reader)?);
-                }
-                "VMPA" => {
-                    layers
-                        .last_mut()
-                        .ok_or(ParseError::MissingLayer)?
-                        .geometry
-                        .vertex_map_parameters
-                        .push(VertexMapParameter::read_be(reader)?);
-                }
-                "VMAP" => {
-                    layers
-                        .last_mut()
-                        .ok_or(ParseError::MissingLayer)?
-                        .geometry
-                        .vertex_maps
-                        .push(VertexMap::read_be_args(reader, chunk_header.size)?);
-                }
-                "VMED" => {
-                    layers
-                        .last_mut()
-                        .ok_or(ParseError::MissingLayer)?
-                        .geometry
-                        .vertex_edge_maps
-                        .push(VertexEdgeMap::read_be_args(reader, chunk_header.size)?);
-                }
-                "POLS" => {
-                    let polygons = PolygonList::read_be_args(reader, chunk_header.size)?;
-                    last_pols_kind = polygons.kind;
-                    let geometry = &mut layers.last_mut().ok_or(ParseError::MissingLayer)?.geometry;
-                    geometry.points.as_ref().ok_or(ParseError::MissingPoints)?;
-                    geometry
-                        .polygons
-                        .insert(polygons.kind, PolygonGroup::new(polygons));
-                }
-                "VMAD" => {
-                    layers
-                        .last_mut()
-                        .ok_or(ParseError::MissingLayer)?
-                        .geometry
-                        .polygons
-                        .get_mut(&last_pols_kind)
-                        .ok_or(ParseError::MissingPolygonsList)?
-                        .vertex_maps
-                        .push(DiscontinuousVertexMap::read_be_args(
-                            reader,
-                            chunk_header.size,
-                        )?);
-                }
-                "PTAG" => {
-                    layers
-                        .last_mut()
-                        .ok_or(ParseError::MissingLayer)?
-                        .geometry
-                        .polygons
-                        .get_mut(&last_pols_kind)
-                        .ok_or(ParseError::MissingPolygonsList)?
-                        .tags
-                        .push(PolygonTagMapping::read_be_args(reader, chunk_header.size)?);
-                }
-                "3GRP" => trisurfs.push(TriSurfGroupHeader::read_be(reader)?),
-                "3SRF" => trisurfs
-                    .last_mut()
-                    .ok_or(ParseError::MissingTriSurfGroupHeader)?
-                    .trisurfaces
-                    .push(TriSurfDataHeader::read_be(reader)?),
-                "VRTS" => {
-                    let trisurf = Self::get_last_mut_trisurf(&mut trisurfs)?;
-
-                    // Check the vertex count matches the expected size
-                    if trisurf.vertex_count != chunk_header.size / 12 {
-                        return Err(ParseError::InvalidSize);
-                    }
-
-                    trisurf.vertices = Some(TriSurfVertices::read_be_args(
-                        reader,
-                        (trisurf.vertex_count,),
-                    )?);
-                }
-                "TRIS" => {
-                    let trisurf = Self::get_last_mut_trisurf(&mut trisurfs)?;
-
-                    // Check the triangle count matches the expected size
-                    if trisurf.triangle_count != chunk_header.size / 12 {
-                        return Err(ParseError::InvalidSize);
-                    }
-
-                    trisurf.triangles = Some(TriSurfTriangles::read_be_args(
-                        reader,
-                        (trisurf.triangle_count,),
-                    )?);
-                }
-                "VVEC" => {
-                    let trisurf = Self::get_last_mut_trisurf(&mut trisurfs)?;
-                    trisurf.vectors.push(TriSurfVertexVectors::read_be_args(
-                        reader,
-                        chunk_header.size,
-                    )?);
-                }
-                "TTGS" => {
-                    let trisurf = Self::get_last_mut_trisurf(&mut trisurfs)?;
-                    trisurf.tags = Some(TriSurfTags::read_be_args(reader, chunk_header.size)?);
-                }
-                "ITEM" => items.push(Item::read_be_args(reader, chunk_header.size)?),
-                "ENVL" => envelopes.push(Envelope::read_be(reader)?),
-                "ACTN" => actions.push(Action::read_be_args(reader, chunk_header.size)?),
-                "DATA" => data_blocks.push(DataBlock::read_be_args(reader, chunk_header.size)?),
-                "AANI" => audio = Some(Audio::read_be_args(reader, chunk_header.size)?),
+                "PRVW" => chunks.push(Chunk::Preview(Preview::read_be_args(reader, (chunk_header.size,))?)),
+                "DESC" => chunks.push(Chunk::Description(Description::read_be(reader)?)),
+                "VRSN" => chunks.push(Chunk::Version(Version::read_be(reader)?)),
+                "APPV" => chunks.push(Chunk::ApplicationVersion(ApplicationVersion::read_be(reader)?)),
+                "ENCO" => chunks.push(Chunk::Encoding(Encoding::read_be(reader)?)),
+                "IASS" => chunks.push(Chunk::IncludeAsSubscene(IncludeAsSubscene::read_be_args(reader, chunk_header.size)?)),
+                "SUBS" => chunks.push(Chunk::Subscene(Subscene::read_be_args(reader, chunk_header.size)?)),
+                "XREF" => chunks.push(Chunk::Reference(Reference::read_be(reader)?)),
+                "STAG" => chunks.push(Chunk::SceneTag(SceneTag::read_be(reader)?)),
+                "TAGS" => chunks.push(Chunk::ItemTags(ItemTags::read_be_args(reader, chunk_header.size)?)),
+                "CHNM" => chunks.push(Chunk::ChannelNames(ChannelNames::read_be_args(reader, chunk_header.size)?)),
+                "LAYR" => chunks.push(Chunk::Layer(Box::new(Layer::read_be(reader)?))),
+                "PNTS" => chunks.push(Chunk::Points(Points::read_be_args(reader, (chunk_header.size / 12,))?)),
+                "BBOX" => chunks.push(Chunk::BoundingBox(BoundingBox::read_be(reader)?)),
+                "VMPA" => chunks.push(Chunk::VertexMapParameter(VertexMapParameter::read_be(reader)?)),
+                "VMAP" => chunks.push(Chunk::VertexMap(VertexMap::read_be_args(reader, chunk_header.size)?)),
+                "VMED" => chunks.push(Chunk::VertexEdgeMap(VertexEdgeMap::read_be_args(reader, chunk_header.size)?)),
+                "POLS" => chunks.push(Chunk::PolygonList(PolygonList::read_be_args(reader, chunk_header.size)?)),
+                "VMAD" => chunks.push(Chunk::DiscontinuousVertexMap(DiscontinuousVertexMap::read_be_args(reader, chunk_header.size,)?)),
+                "PTAG" => chunks.push(Chunk::PolygonTagMapping(PolygonTagMapping::read_be_args(reader, chunk_header.size)?)),
+                "3GRP" => chunks.push(Chunk::TriSurfGroupHeader(TriSurfGroupHeader::read_be(reader)?)),
+                "3SRF" => chunks.push(Chunk::TriSurfDataHeader(TriSurfDataHeader::read_be(reader)?)),
+                "VRTS" => chunks.push(Chunk::TriSurfVertices(TriSurfVertices::read_be_args(reader, (chunk_header.size / 12,))?)),
+                "TRIS" => chunks.push(Chunk::TriSurfTriangles(TriSurfTriangles::read_be_args(reader, (chunk_header.size / 12,))?)),
+                "VVEC" => chunks.push(Chunk::TriSurfVertexVectors(TriSurfVertexVectors::read_be_args( reader, chunk_header.size,)?)),
+                "TTGS" => chunks.push(Chunk::TriSurfTags(TriSurfTags::read_be_args(reader, chunk_header.size)?)),
+                "ITEM" => chunks.push(Chunk::Item(Box::new(Item::read_be_args(reader, chunk_header.size)?))),
+                "ENVL" => chunks.push(Chunk::Envelope(Envelope::read_be(reader)?)),
+                "ACTN" => chunks.push(Chunk::Action(Action::read_be_args(reader, chunk_header.size)?)),
+                "DATA" => chunks.push(Chunk::DataBlock(DataBlock::read_be_args(reader, chunk_header.size)?)),
+                "AANI" => chunks.push(Chunk::Audio(Audio::read_be_args(reader, chunk_header.size)?)),
                 _ => {
-                    // just eprint? or keep in vec<unknowns>?
-                    eprintln!(
-                        "Unknown Chunk {}, pos: {}, size: {}",
-                        chunk_header.kind,
-                        chunk_start_position,
-                        chunk_header.size + 8 // size of header + data
-                    );
-
-                    reader.seek_relative(chunk_header.size as i64)?
+                    let mut chunk_data: Vec<u8> = Vec::with_capacity(chunk_header.size as usize);
+                    reader.read_exact(&mut chunk_data)?;
+                    chunks.push(Chunk::Unknown((chunk_header, chunk_data)));
                 }
             }
 
+            // additional safety checks, to catch if any parser did not consume the full chunk
+            // payload
             let consumed = reader.stream_position()? - chunk_start_position as u64 - 8;
             if consumed != chunk_header.size as u64 {
                 return Err(ParseError::ChunkBoundaryMismatch {
@@ -519,27 +284,7 @@ impl LuxologyFile {
             }
         }
 
-        Ok(LuxologyFile {
-            header,
-            preview,
-            description,
-            version,
-            application_version,
-            encoding,
-            included_subscene,
-            subscenes,
-            references,
-            scene_tags,
-            item_tags,
-            channel_names,
-            layers,
-            trisurfs,
-            items,
-            envelopes,
-            actions,
-            data_blocks,
-            audio,
-        })
+        Ok(LuxologyFile { header, chunks })
     }
 
     pub fn from_reader<R: Read + Seek>(reader: &mut R) -> Result<LuxologyFile, ParseError> {
@@ -559,97 +304,43 @@ impl LuxologyFile {
         let mut buf = Vec::new();
         let mut bw = Cursor::new(&mut buf);
 
-        // Scene metadata
-        if let Some(ref preview) = self.preview {
-            write_chunk(&mut bw, ID4::from_str("PRVW").unwrap(), preview)?;
-        }
-        if let Some(ref v) = self.version {
-            write_chunk(&mut bw, ID4::from_str("VRSN").unwrap(), v)?;
-        }
-        if let Some(ref v) = self.application_version {
-            write_chunk(&mut bw, ID4::from_str("APPV").unwrap(), v)?;
-        }
-        if let Some(ref e) = self.encoding {
-            write_chunk(&mut bw, ID4::from_str("ENCO").unwrap(), e)?;
-        }
-        if let Some(ref i) = self.included_subscene {
-            write_chunk(&mut bw, ID4::from_str("IASS").unwrap(), i)?;
-        }
-        for s in &self.subscenes {
-            write_chunk(&mut bw, ID4::from_str("SUBS").unwrap(), s)?;
-        }
-        for tag in &self.scene_tags {
-            write_chunk(&mut bw, ID4::from_str("STAG").unwrap(), tag)?;
-        }
-        if let Some(ref t) = self.item_tags {
-            write_chunk(&mut bw, ID4::from_str("TAGS").unwrap(), t)?;
-        }
-        if let Some(ref c) = self.channel_names {
-            write_chunk(&mut bw, ID4::from_str("CHNM").unwrap(), c)?;
-        }
-        // Layer geometry
-        for layer in &self.layers {
-            write_chunk(&mut bw, ID4::from_str("LAYR").unwrap(), layer)?;
-            if let Some(ref p) = layer.geometry.points {
-                write_chunk(&mut bw, ID4::from_str("PNTS").unwrap(), p)?;
-            }
-            if let Some(ref b) = layer.geometry.bounds {
-                write_chunk(&mut bw, ID4::from_str("BBOX").unwrap(), b)?;
-            }
-            // vertex map parameters & vertex maps comes in groups, so we zip them together
-            for (vmpa, vmap) in zip(
-                &layer.geometry.vertex_map_parameters,
-                &layer.geometry.vertex_maps,
-            ) {
-                write_chunk(&mut bw, ID4::from_str("VMPA").unwrap(), vmpa)?;
-                write_chunk(&mut bw, ID4::from_str("VMAP").unwrap(), vmap)?;
-            }
-            for vmed in &layer.geometry.vertex_edge_maps {
-                write_chunk(&mut bw, ID4::from_str("VMED").unwrap(), vmed)?;
-            }
-            for group in layer.geometry.polygons.values() {
-                write_chunk(&mut bw, ID4::from_str("POLS").unwrap(), &group.polygons)?;
-                for dvm in &group.vertex_maps {
-                    write_chunk(&mut bw, ID4::from_str("VMAD").unwrap(), dvm)?;
-                }
-                for tag in &group.tags {
-                    write_chunk(&mut bw, ID4::from_str("PTAG").unwrap(), tag)?;
-                }
+        for chunk in &self.chunks {
+            match chunk {
+                Chunk::Preview(preview) => write_chunk(&mut bw, ID4::from_str("PRVW").unwrap(), &preview)?,
+                Chunk::Description(desc) => write_chunk(&mut bw, ID4::from_str("DESC").unwrap(), &desc)?,
+                Chunk::Version(version) => write_chunk(&mut bw, ID4::from_str("VRSN").unwrap(), &version)?,
+                Chunk::ApplicationVersion(application_version) => write_chunk(&mut bw, ID4::from_str("APPV").unwrap(), &application_version)?,
+                Chunk::Encoding(encoding) => write_chunk(&mut bw, ID4::from_str("ENCO").unwrap(), &encoding)?,
+                Chunk::IncludeAsSubscene(iass) => write_chunk(&mut bw, ID4::from_str("IASS").unwrap(), &iass)?,
+                Chunk::Subscene(subscene) => write_chunk(&mut bw, ID4::from_str("SUBS").unwrap(), &subscene)?,
+                Chunk::Reference(xref) => write_chunk(&mut bw, ID4::from_str("XREF").unwrap(), &xref)?,
+                Chunk::SceneTag(scene_tag) => write_chunk(&mut bw, ID4::from_str("STAG").unwrap(), &scene_tag)?,
+                Chunk::ItemTags(item_tags) => write_chunk(&mut bw, ID4::from_str("TAGS").unwrap(), &item_tags)?,
+                Chunk::ChannelNames(channel_names) => write_chunk(&mut bw, ID4::from_str("CHNM").unwrap(), &channel_names)?,
+                Chunk::Layer(layer) => write_chunk(&mut bw, ID4::from_str("LAYR").unwrap(), &(*layer))?,
+                Chunk::Points(points) => write_chunk(&mut bw, ID4::from_str("PNTS").unwrap(), &points)?,
+                Chunk::BoundingBox(bbox) => write_chunk(&mut bw, ID4::from_str("BBOX").unwrap(), &bbox)?,
+                Chunk::VertexMapParameter(vmap_params) => write_chunk(&mut bw, ID4::from_str("VMPA").unwrap(), &vmap_params)?,
+                Chunk::VertexMap(vmap) => write_chunk(&mut bw, ID4::from_str("VMAP").unwrap(), &vmap)?,
+                Chunk::VertexEdgeMap(vmed) => write_chunk(&mut bw, ID4::from_str("VMED").unwrap(), &vmed)?,
+                Chunk::PolygonList(pols) => write_chunk(&mut bw, ID4::from_str("POLS").unwrap(), &pols)?,
+                Chunk::DiscontinuousVertexMap(vmad) => write_chunk(&mut bw, ID4::from_str("VMAD").unwrap(), &vmad)?,
+                Chunk::PolygonTagMapping(ptag) => write_chunk(&mut bw, ID4::from_str("PTAG").unwrap(), &ptag)?,
+                Chunk::TriSurfGroupHeader(trisurf_group) => write_chunk(&mut bw, ID4::from_str("3GRP").unwrap(), &trisurf_group)?,
+                Chunk::TriSurfDataHeader(trisurf_data) => write_chunk(&mut bw, ID4::from_str("3SRF").unwrap(), &trisurf_data)?,
+                Chunk::TriSurfVertices(vertices) => write_chunk(&mut bw, ID4::from_str("VRTS").unwrap(), &vertices)?,
+                Chunk::TriSurfTriangles(triangles) => write_chunk(&mut bw, ID4::from_str("TRIS").unwrap(), &triangles)?,
+                Chunk::TriSurfVertexVectors(vvec) => write_chunk(&mut bw, ID4::from_str("VVEC").unwrap(), &vvec)?,
+                Chunk::TriSurfTags(ttag) => write_chunk(&mut bw, ID4::from_str("TTAG").unwrap(), &ttag)?,
+                Chunk::Item(item) => write_chunk(&mut bw, ID4::from_str("ITEM").unwrap(), &(*item))?,
+                Chunk::Envelope(envelope) => write_chunk(&mut bw, ID4::from_str("ENVL").unwrap(), &envelope)?,
+                Chunk::Action(action) => write_chunk(&mut bw, ID4::from_str("ACTN").unwrap(), &action)?,
+                Chunk::DataBlock(data) => write_chunk(&mut bw, ID4::from_str("DATA").unwrap(), &data)?,
+                Chunk::Audio(audio) => write_chunk(&mut bw, ID4::from_str("AANI").unwrap(), &audio)?,
+                Chunk::Unknown((header, data)) => write_chunk(&mut bw, header.kind, &data)?
             }
         }
-        // Trisurf geometry
-        for group in &self.trisurfs {
-            write_chunk(&mut bw, ID4::from_str("3GRP").unwrap(), group)?;
-            for trisurf in &group.trisurfaces {
-                write_chunk(&mut bw, ID4::from_str("3SRF").unwrap(), trisurf)?;
-                if let Some(ref v) = trisurf.vertices {
-                    write_chunk(&mut bw, ID4::from_str("VRTS").unwrap(), v)?;
-                }
-                if let Some(ref t) = trisurf.triangles {
-                    write_chunk(&mut bw, ID4::from_str("TRIS").unwrap(), t)?;
-                }
-                for vvec in &trisurf.vectors {
-                    write_chunk(&mut bw, ID4::from_str("VVEC").unwrap(), vvec)?;
-                }
-                if let Some(ref t) = trisurf.tags {
-                    write_chunk(&mut bw, ID4::from_str("TTGS").unwrap(), t)?;
-                }
-            }
-        }
-        // Items, envelopes, actions
-        for item in &self.items {
-            write_chunk(&mut bw, ID4::from_str("ITEM").unwrap(), item)?;
-        }
-        for env in &self.envelopes {
-            write_chunk(&mut bw, ID4::from_str("ENVL").unwrap(), env)?;
-        }
-        for action in &self.actions {
-            write_chunk(&mut bw, ID4::from_str("ACTN").unwrap(), action)?;
-        }
-        // Audio
-        if let Some(ref a) = self.audio {
-            write_chunk(&mut bw, ID4::from_str("AANI").unwrap(), a)?;
-        }
+
         // Write FORM header with computed size
         // We add 4, as the extension is also counted for size,
         let size = (buf.len() + 4) as u32;
