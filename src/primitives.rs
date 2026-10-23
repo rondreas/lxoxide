@@ -162,7 +162,7 @@ impl fmt::Display for ID4 {
 ///
 /// Each chunk will consist of a header with the type of chunk (`ID4`) followed
 /// by a u32 size of the data in the chunk, excluding the header.
-#[derive(BinRead, BinWrite, Debug)]
+#[derive(BinRead, BinWrite, Debug, Clone, Copy)]
 #[br(big)]
 #[bw(big)]
 pub struct ChunkHeader {
