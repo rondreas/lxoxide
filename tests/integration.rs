@@ -3,16 +3,28 @@ use std::io::Cursor;
 use std::path::PathBuf;
 
 #[test]
-fn cube() {
+fn default() {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("tests/fixtures/cube.lxo");
+    path.push("tests/fixtures/default.lxo");
 
     let lxo = LuxologyFile::from_path(&path).unwrap();
 
     let mut writer = Cursor::new(vec![]);
     lxo.to_writer(&mut writer).unwrap();
+    let bytes = std::fs::read(&path).unwrap();
 
-    // not optimal, but for now saving file contents as bytes for comparision
+    assert_eq!(writer.into_inner(), bytes);
+}
+
+#[test]
+fn cube() {
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("tests/fixtures/cube.lxl");
+
+    let lxo = LuxologyFile::from_path(&path).unwrap();
+
+    let mut writer = Cursor::new(vec![]);
+    lxo.to_writer(&mut writer).unwrap();
     let bytes = std::fs::read(&path).unwrap();
 
     assert_eq!(writer.into_inner(), bytes);
