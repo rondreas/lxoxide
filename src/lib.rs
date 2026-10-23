@@ -28,8 +28,8 @@ use utils::write_chunk;
 
 use animation::{Action, Envelope};
 use geometry::layer::{
-    BoundingBox, DiscontinuousVertexMap, Layer, Points, PolygonList,
-    PolygonTagMapping, VertexEdgeMap, VertexMap, VertexMapParameter,
+    BoundingBox, DiscontinuousVertexMap, Layer, Points, PolygonList, PolygonTagMapping,
+    VertexEdgeMap, VertexMap, VertexMapParameter,
 };
 use geometry::trisurf::{
     TriSurfDataHeader, TriSurfGroupHeader, TriSurfTags, TriSurfTriangles, TriSurfVertexVectors,
@@ -187,7 +187,7 @@ pub enum Chunk {
     Action(Action),
     DataBlock(DataBlock),
     Audio(Audio),
-    Unknown((ChunkHeader, Vec<u8>))
+    Unknown((ChunkHeader, Vec<u8>)),
 }
 
 pub struct LuxologyFile {
@@ -234,37 +234,100 @@ impl LuxologyFile {
 
             // todo: We should likely make all read_be_args accept size in a more uniform way
             match chunk_header.kind.as_str() {
-                "PRVW" => chunks.push(Chunk::Preview(Preview::read_be_args(reader, (chunk_header.size,))?)),
+                "PRVW" => chunks.push(Chunk::Preview(Preview::read_be_args(
+                    reader,
+                    (chunk_header.size,),
+                )?)),
                 "DESC" => chunks.push(Chunk::Description(Description::read_be(reader)?)),
                 "VRSN" => chunks.push(Chunk::Version(Version::read_be(reader)?)),
-                "APPV" => chunks.push(Chunk::ApplicationVersion(ApplicationVersion::read_be(reader)?)),
+                "APPV" => chunks.push(Chunk::ApplicationVersion(ApplicationVersion::read_be(
+                    reader,
+                )?)),
                 "ENCO" => chunks.push(Chunk::Encoding(Encoding::read_be(reader)?)),
-                "IASS" => chunks.push(Chunk::IncludeAsSubscene(IncludeAsSubscene::read_be_args(reader, chunk_header.size)?)),
-                "SUBS" => chunks.push(Chunk::Subscene(Subscene::read_be_args(reader, chunk_header.size)?)),
+                "IASS" => chunks.push(Chunk::IncludeAsSubscene(IncludeAsSubscene::read_be_args(
+                    reader,
+                    chunk_header.size,
+                )?)),
+                "SUBS" => chunks.push(Chunk::Subscene(Subscene::read_be_args(
+                    reader,
+                    chunk_header.size,
+                )?)),
                 "XREF" => chunks.push(Chunk::Reference(Reference::read_be(reader)?)),
                 "STAG" => chunks.push(Chunk::SceneTag(SceneTag::read_be(reader)?)),
-                "TAGS" => chunks.push(Chunk::ItemTags(ItemTags::read_be_args(reader, chunk_header.size)?)),
-                "CHNM" => chunks.push(Chunk::ChannelNames(ChannelNames::read_be_args(reader, chunk_header.size)?)),
+                "TAGS" => chunks.push(Chunk::ItemTags(ItemTags::read_be_args(
+                    reader,
+                    chunk_header.size,
+                )?)),
+                "CHNM" => chunks.push(Chunk::ChannelNames(ChannelNames::read_be_args(
+                    reader,
+                    chunk_header.size,
+                )?)),
                 "LAYR" => chunks.push(Chunk::Layer(Box::new(Layer::read_be(reader)?))),
-                "PNTS" => chunks.push(Chunk::Points(Points::read_be_args(reader, (chunk_header.size / 12,))?)),
+                "PNTS" => chunks.push(Chunk::Points(Points::read_be_args(
+                    reader,
+                    (chunk_header.size / 12,),
+                )?)),
                 "BBOX" => chunks.push(Chunk::BoundingBox(BoundingBox::read_be(reader)?)),
-                "VMPA" => chunks.push(Chunk::VertexMapParameter(VertexMapParameter::read_be(reader)?)),
-                "VMAP" => chunks.push(Chunk::VertexMap(VertexMap::read_be_args(reader, chunk_header.size)?)),
-                "VMED" => chunks.push(Chunk::VertexEdgeMap(VertexEdgeMap::read_be_args(reader, chunk_header.size)?)),
-                "POLS" => chunks.push(Chunk::PolygonList(PolygonList::read_be_args(reader, chunk_header.size)?)),
-                "VMAD" => chunks.push(Chunk::DiscontinuousVertexMap(DiscontinuousVertexMap::read_be_args(reader, chunk_header.size,)?)),
-                "PTAG" => chunks.push(Chunk::PolygonTagMapping(PolygonTagMapping::read_be_args(reader, chunk_header.size)?)),
-                "3GRP" => chunks.push(Chunk::TriSurfGroupHeader(TriSurfGroupHeader::read_be(reader)?)),
-                "3SRF" => chunks.push(Chunk::TriSurfDataHeader(TriSurfDataHeader::read_be(reader)?)),
-                "VRTS" => chunks.push(Chunk::TriSurfVertices(TriSurfVertices::read_be_args(reader, (chunk_header.size / 12,))?)),
-                "TRIS" => chunks.push(Chunk::TriSurfTriangles(TriSurfTriangles::read_be_args(reader, (chunk_header.size / 12,))?)),
-                "VVEC" => chunks.push(Chunk::TriSurfVertexVectors(TriSurfVertexVectors::read_be_args( reader, chunk_header.size,)?)),
-                "TTGS" => chunks.push(Chunk::TriSurfTags(TriSurfTags::read_be_args(reader, chunk_header.size)?)),
-                "ITEM" => chunks.push(Chunk::Item(Box::new(Item::read_be_args(reader, chunk_header.size)?))),
+                "VMPA" => chunks.push(Chunk::VertexMapParameter(VertexMapParameter::read_be(
+                    reader,
+                )?)),
+                "VMAP" => chunks.push(Chunk::VertexMap(VertexMap::read_be_args(
+                    reader,
+                    chunk_header.size,
+                )?)),
+                "VMED" => chunks.push(Chunk::VertexEdgeMap(VertexEdgeMap::read_be_args(
+                    reader,
+                    chunk_header.size,
+                )?)),
+                "POLS" => chunks.push(Chunk::PolygonList(PolygonList::read_be_args(
+                    reader,
+                    chunk_header.size,
+                )?)),
+                "VMAD" => chunks.push(Chunk::DiscontinuousVertexMap(
+                    DiscontinuousVertexMap::read_be_args(reader, chunk_header.size)?,
+                )),
+                "PTAG" => chunks.push(Chunk::PolygonTagMapping(PolygonTagMapping::read_be_args(
+                    reader,
+                    chunk_header.size,
+                )?)),
+                "3GRP" => chunks.push(Chunk::TriSurfGroupHeader(TriSurfGroupHeader::read_be(
+                    reader,
+                )?)),
+                "3SRF" => chunks.push(Chunk::TriSurfDataHeader(TriSurfDataHeader::read_be(
+                    reader,
+                )?)),
+                "VRTS" => chunks.push(Chunk::TriSurfVertices(TriSurfVertices::read_be_args(
+                    reader,
+                    (chunk_header.size / 12,),
+                )?)),
+                "TRIS" => chunks.push(Chunk::TriSurfTriangles(TriSurfTriangles::read_be_args(
+                    reader,
+                    (chunk_header.size / 12,),
+                )?)),
+                "VVEC" => chunks.push(Chunk::TriSurfVertexVectors(
+                    TriSurfVertexVectors::read_be_args(reader, chunk_header.size)?,
+                )),
+                "TTGS" => chunks.push(Chunk::TriSurfTags(TriSurfTags::read_be_args(
+                    reader,
+                    chunk_header.size,
+                )?)),
+                "ITEM" => chunks.push(Chunk::Item(Box::new(Item::read_be_args(
+                    reader,
+                    chunk_header.size,
+                )?))),
                 "ENVL" => chunks.push(Chunk::Envelope(Envelope::read_be(reader)?)),
-                "ACTN" => chunks.push(Chunk::Action(Action::read_be_args(reader, chunk_header.size)?)),
-                "DATA" => chunks.push(Chunk::DataBlock(DataBlock::read_be_args(reader, chunk_header.size)?)),
-                "AANI" => chunks.push(Chunk::Audio(Audio::read_be_args(reader, chunk_header.size)?)),
+                "ACTN" => chunks.push(Chunk::Action(Action::read_be_args(
+                    reader,
+                    chunk_header.size,
+                )?)),
+                "DATA" => chunks.push(Chunk::DataBlock(DataBlock::read_be_args(
+                    reader,
+                    chunk_header.size,
+                )?)),
+                "AANI" => chunks.push(Chunk::Audio(Audio::read_be_args(
+                    reader,
+                    chunk_header.size,
+                )?)),
                 _ => {
                     let mut chunk_data: Vec<u8> = Vec::with_capacity(chunk_header.size as usize);
                     reader.read_exact(&mut chunk_data)?;
@@ -306,38 +369,102 @@ impl LuxologyFile {
 
         for chunk in &self.chunks {
             match chunk {
-                Chunk::Preview(preview) => write_chunk(&mut bw, ID4::from_str("PRVW").unwrap(), &preview)?,
-                Chunk::Description(desc) => write_chunk(&mut bw, ID4::from_str("DESC").unwrap(), &desc)?,
-                Chunk::Version(version) => write_chunk(&mut bw, ID4::from_str("VRSN").unwrap(), &version)?,
-                Chunk::ApplicationVersion(application_version) => write_chunk(&mut bw, ID4::from_str("APPV").unwrap(), &application_version)?,
-                Chunk::Encoding(encoding) => write_chunk(&mut bw, ID4::from_str("ENCO").unwrap(), &encoding)?,
-                Chunk::IncludeAsSubscene(iass) => write_chunk(&mut bw, ID4::from_str("IASS").unwrap(), &iass)?,
-                Chunk::Subscene(subscene) => write_chunk(&mut bw, ID4::from_str("SUBS").unwrap(), &subscene)?,
-                Chunk::Reference(xref) => write_chunk(&mut bw, ID4::from_str("XREF").unwrap(), &xref)?,
-                Chunk::SceneTag(scene_tag) => write_chunk(&mut bw, ID4::from_str("STAG").unwrap(), &scene_tag)?,
-                Chunk::ItemTags(item_tags) => write_chunk(&mut bw, ID4::from_str("TAGS").unwrap(), &item_tags)?,
-                Chunk::ChannelNames(channel_names) => write_chunk(&mut bw, ID4::from_str("CHNM").unwrap(), &channel_names)?,
-                Chunk::Layer(layer) => write_chunk(&mut bw, ID4::from_str("LAYR").unwrap(), &(*layer))?,
-                Chunk::Points(points) => write_chunk(&mut bw, ID4::from_str("PNTS").unwrap(), &points)?,
-                Chunk::BoundingBox(bbox) => write_chunk(&mut bw, ID4::from_str("BBOX").unwrap(), &bbox)?,
-                Chunk::VertexMapParameter(vmap_params) => write_chunk(&mut bw, ID4::from_str("VMPA").unwrap(), &vmap_params)?,
-                Chunk::VertexMap(vmap) => write_chunk(&mut bw, ID4::from_str("VMAP").unwrap(), &vmap)?,
-                Chunk::VertexEdgeMap(vmed) => write_chunk(&mut bw, ID4::from_str("VMED").unwrap(), &vmed)?,
-                Chunk::PolygonList(pols) => write_chunk(&mut bw, ID4::from_str("POLS").unwrap(), &pols)?,
-                Chunk::DiscontinuousVertexMap(vmad) => write_chunk(&mut bw, ID4::from_str("VMAD").unwrap(), &vmad)?,
-                Chunk::PolygonTagMapping(ptag) => write_chunk(&mut bw, ID4::from_str("PTAG").unwrap(), &ptag)?,
-                Chunk::TriSurfGroupHeader(trisurf_group) => write_chunk(&mut bw, ID4::from_str("3GRP").unwrap(), &trisurf_group)?,
-                Chunk::TriSurfDataHeader(trisurf_data) => write_chunk(&mut bw, ID4::from_str("3SRF").unwrap(), &trisurf_data)?,
-                Chunk::TriSurfVertices(vertices) => write_chunk(&mut bw, ID4::from_str("VRTS").unwrap(), &vertices)?,
-                Chunk::TriSurfTriangles(triangles) => write_chunk(&mut bw, ID4::from_str("TRIS").unwrap(), &triangles)?,
-                Chunk::TriSurfVertexVectors(vvec) => write_chunk(&mut bw, ID4::from_str("VVEC").unwrap(), &vvec)?,
-                Chunk::TriSurfTags(ttag) => write_chunk(&mut bw, ID4::from_str("TTAG").unwrap(), &ttag)?,
-                Chunk::Item(item) => write_chunk(&mut bw, ID4::from_str("ITEM").unwrap(), &(*item))?,
-                Chunk::Envelope(envelope) => write_chunk(&mut bw, ID4::from_str("ENVL").unwrap(), &envelope)?,
-                Chunk::Action(action) => write_chunk(&mut bw, ID4::from_str("ACTN").unwrap(), &action)?,
-                Chunk::DataBlock(data) => write_chunk(&mut bw, ID4::from_str("DATA").unwrap(), &data)?,
-                Chunk::Audio(audio) => write_chunk(&mut bw, ID4::from_str("AANI").unwrap(), &audio)?,
-                Chunk::Unknown((header, data)) => write_chunk(&mut bw, header.kind, &data)?
+                Chunk::Preview(preview) => {
+                    write_chunk(&mut bw, ID4::from_str("PRVW").unwrap(), &preview)?
+                }
+                Chunk::Description(desc) => {
+                    write_chunk(&mut bw, ID4::from_str("DESC").unwrap(), &desc)?
+                }
+                Chunk::Version(version) => {
+                    write_chunk(&mut bw, ID4::from_str("VRSN").unwrap(), &version)?
+                }
+                Chunk::ApplicationVersion(application_version) => write_chunk(
+                    &mut bw,
+                    ID4::from_str("APPV").unwrap(),
+                    &application_version,
+                )?,
+                Chunk::Encoding(encoding) => {
+                    write_chunk(&mut bw, ID4::from_str("ENCO").unwrap(), &encoding)?
+                }
+                Chunk::IncludeAsSubscene(iass) => {
+                    write_chunk(&mut bw, ID4::from_str("IASS").unwrap(), &iass)?
+                }
+                Chunk::Subscene(subscene) => {
+                    write_chunk(&mut bw, ID4::from_str("SUBS").unwrap(), &subscene)?
+                }
+                Chunk::Reference(xref) => {
+                    write_chunk(&mut bw, ID4::from_str("XREF").unwrap(), &xref)?
+                }
+                Chunk::SceneTag(scene_tag) => {
+                    write_chunk(&mut bw, ID4::from_str("STAG").unwrap(), &scene_tag)?
+                }
+                Chunk::ItemTags(item_tags) => {
+                    write_chunk(&mut bw, ID4::from_str("TAGS").unwrap(), &item_tags)?
+                }
+                Chunk::ChannelNames(channel_names) => {
+                    write_chunk(&mut bw, ID4::from_str("CHNM").unwrap(), &channel_names)?
+                }
+                Chunk::Layer(layer) => {
+                    write_chunk(&mut bw, ID4::from_str("LAYR").unwrap(), layer)?
+                }
+                Chunk::Points(points) => {
+                    write_chunk(&mut bw, ID4::from_str("PNTS").unwrap(), &points)?
+                }
+                Chunk::BoundingBox(bbox) => {
+                    write_chunk(&mut bw, ID4::from_str("BBOX").unwrap(), &bbox)?
+                }
+                Chunk::VertexMapParameter(vmap_params) => {
+                    write_chunk(&mut bw, ID4::from_str("VMPA").unwrap(), &vmap_params)?
+                }
+                Chunk::VertexMap(vmap) => {
+                    write_chunk(&mut bw, ID4::from_str("VMAP").unwrap(), &vmap)?
+                }
+                Chunk::VertexEdgeMap(vmed) => {
+                    write_chunk(&mut bw, ID4::from_str("VMED").unwrap(), &vmed)?
+                }
+                Chunk::PolygonList(pols) => {
+                    write_chunk(&mut bw, ID4::from_str("POLS").unwrap(), &pols)?
+                }
+                Chunk::DiscontinuousVertexMap(vmad) => {
+                    write_chunk(&mut bw, ID4::from_str("VMAD").unwrap(), &vmad)?
+                }
+                Chunk::PolygonTagMapping(ptag) => {
+                    write_chunk(&mut bw, ID4::from_str("PTAG").unwrap(), &ptag)?
+                }
+                Chunk::TriSurfGroupHeader(trisurf_group) => {
+                    write_chunk(&mut bw, ID4::from_str("3GRP").unwrap(), &trisurf_group)?
+                }
+                Chunk::TriSurfDataHeader(trisurf_data) => {
+                    write_chunk(&mut bw, ID4::from_str("3SRF").unwrap(), &trisurf_data)?
+                }
+                Chunk::TriSurfVertices(vertices) => {
+                    write_chunk(&mut bw, ID4::from_str("VRTS").unwrap(), &vertices)?
+                }
+                Chunk::TriSurfTriangles(triangles) => {
+                    write_chunk(&mut bw, ID4::from_str("TRIS").unwrap(), &triangles)?
+                }
+                Chunk::TriSurfVertexVectors(vvec) => {
+                    write_chunk(&mut bw, ID4::from_str("VVEC").unwrap(), &vvec)?
+                }
+                Chunk::TriSurfTags(ttag) => {
+                    write_chunk(&mut bw, ID4::from_str("TTAG").unwrap(), &ttag)?
+                }
+                Chunk::Item(item) => {
+                    write_chunk(&mut bw, ID4::from_str("ITEM").unwrap(), item)?
+                }
+                Chunk::Envelope(envelope) => {
+                    write_chunk(&mut bw, ID4::from_str("ENVL").unwrap(), &envelope)?
+                }
+                Chunk::Action(action) => {
+                    write_chunk(&mut bw, ID4::from_str("ACTN").unwrap(), &action)?
+                }
+                Chunk::DataBlock(data) => {
+                    write_chunk(&mut bw, ID4::from_str("DATA").unwrap(), &data)?
+                }
+                Chunk::Audio(audio) => {
+                    write_chunk(&mut bw, ID4::from_str("AANI").unwrap(), &audio)?
+                }
+                Chunk::Unknown((header, data)) => write_chunk(&mut bw, header.kind, &data)?,
             }
         }
 

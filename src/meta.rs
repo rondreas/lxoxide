@@ -320,7 +320,11 @@ impl BinWrite for Reference {
         self.subscene_index.write_be(writer)?;
         write_aligned_nullstring(writer, &self.subscene_name)?;
         write_subchunk(writer, ID4::from_str("IDEL").unwrap(), &self.item_deletion)?;
-        write_subchunk(writer, ID4::from_str("XMAN").unwrap(), &self.reference_manager)?;
+        write_subchunk(
+            writer,
+            ID4::from_str("XMAN").unwrap(),
+            &self.reference_manager,
+        )?;
         Ok(())
     }
 }
