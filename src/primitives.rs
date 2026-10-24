@@ -174,7 +174,7 @@ pub struct ChunkHeader {
 ///
 /// Chunks can contain subchunks. Sub chunk headers have a type (`ID4`) followed
 /// by a u16 size of data inside the chunk, excluding the header.
-#[derive(BinRead, BinWrite, Debug)]
+#[derive(BinRead, BinWrite, Debug, Clone, Copy)]
 #[br(big)]
 #[bw(big)]
 pub struct SubChunkHeader {

@@ -109,6 +109,13 @@ pub enum ParseError {
         consumed: u64,
     },
 
+    #[error("Subchunk {kind} consumed {consumed} bytes, expected {expected}")]
+    SubchunkBoundaryMismatch {
+        kind: String,
+        expected: u16,
+        consumed: u64,
+    },
+
     #[error("File type not supported")]
     NonSupportedExtension,
 
@@ -182,7 +189,7 @@ pub enum Chunk {
     TriSurfTriangles(TriSurfTriangles),
     TriSurfVertexVectors(TriSurfVertexVectors),
     TriSurfTags(TriSurfTags),
-    Item(Box<Item>),
+    Item(Item),
     Envelope(Envelope),
     Action(Action),
     DataBlock(DataBlock),
@@ -311,10 +318,7 @@ impl LuxologyFile {
                     reader,
                     chunk_header.size,
                 )?)),
-                "ITEM" => chunks.push(Chunk::Item(Box::new(Item::read_be_args(
-                    reader,
-                    chunk_header.size,
-                )?))),
+                "ITEM" => chunks.push(Chunk::Item(Item::read_be_args(reader, chunk_header.size)?)),
                 "ENVL" => chunks.push(Chunk::Envelope(Envelope::read_be(reader)?)),
                 "ACTN" => chunks.push(Chunk::Action(Action::read_be_args(
                     reader,
@@ -404,9 +408,7 @@ impl LuxologyFile {
                 Chunk::ChannelNames(channel_names) => {
                     write_chunk(&mut bw, ID4::from_str("CHNM").unwrap(), &channel_names)?
                 }
-                Chunk::Layer(layer) => {
-                    write_chunk(&mut bw, ID4::from_str("LAYR").unwrap(), layer)?
-                }
+                Chunk::Layer(layer) => write_chunk(&mut bw, ID4::from_str("LAYR").unwrap(), layer)?,
                 Chunk::Points(points) => {
                     write_chunk(&mut bw, ID4::from_str("PNTS").unwrap(), &points)?
                 }
@@ -449,9 +451,7 @@ impl LuxologyFile {
                 Chunk::TriSurfTags(ttag) => {
                     write_chunk(&mut bw, ID4::from_str("TTAG").unwrap(), &ttag)?
                 }
-                Chunk::Item(item) => {
-                    write_chunk(&mut bw, ID4::from_str("ITEM").unwrap(), item)?
-                }
+                Chunk::Item(item) => write_chunk(&mut bw, ID4::from_str("ITEM").unwrap(), item)?,
                 Chunk::Envelope(envelope) => {
                     write_chunk(&mut bw, ID4::from_str("ENVL").unwrap(), &envelope)?
                 }

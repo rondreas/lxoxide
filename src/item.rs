@@ -4,7 +4,7 @@ use crate::utils::{read_aligned_nullstring, write_aligned_nullstring, write_subc
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{
     BinRead, BinResult, BinWrite, Endian, NullString,
-    io::{Cursor, Read, Seek, Write},
+    io::{Read, Seek, Write},
 };
 use bitflags::bitflags;
 use std::str::FromStr;
@@ -319,49 +319,6 @@ pub struct BlockChannel {
     pub index: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Channels {
-    CHAN(Channel),
-    GRAD(Gradient),
-    CHNL(ScalarChannel),
-    CHNV(VectorChannel),
-    CHNS(StringChannel),
-    BCHN(BlockChannel),
-}
-
-impl Channels {
-    fn subchunk_kind(&self) -> ID4 {
-        match self {
-            Channels::CHAN(_) => ID4::from_str("CHAN").unwrap(),
-            Channels::GRAD(_) => ID4::from_str("GRAD").unwrap(),
-            Channels::CHNL(_) => ID4::from_str("CHNL").unwrap(),
-            Channels::CHNV(_) => ID4::from_str("CHNV").unwrap(),
-            Channels::CHNS(_) => ID4::from_str("CHNS").unwrap(),
-            Channels::BCHN(_) => ID4::from_str("BCHN").unwrap(),
-        }
-    }
-}
-
-impl BinWrite for Channels {
-    type Args<'a> = ();
-
-    fn write_options<W: Write + Seek>(
-        &self,
-        writer: &mut W,
-        _endian: Endian,
-        (): Self::Args<'_>,
-    ) -> BinResult<()> {
-        match self {
-            Channels::CHAN(ch) => ch.write_options(writer, _endian, ()),
-            Channels::GRAD(ch) => ch.write_options(writer, _endian, ()),
-            Channels::CHNL(ch) => ch.write_options(writer, _endian, ()),
-            Channels::CHNV(ch) => ch.write_options(writer, _endian, ()),
-            Channels::CHNS(ch) => ch.write_options(writer, _endian, ()),
-            Channels::BCHN(ch) => ch.write_options(writer, _endian, ()),
-        }
-    }
-}
-
 #[derive(Debug, BinWrite)]
 pub struct DataBlock {
     pub index: u32,
@@ -451,33 +408,125 @@ pub struct UserChannel {
     pub hints: Vec<TextHint>,
 }
 
+/// All subchunks for Item
+#[derive(Debug)]
+pub enum ItemSubchunk {
+    Reference(Reference),
+    Package(Package),
+    Layer(Layer),
+    UserChannel(UserChannel),
+    ChannelLink(ChannelLink),
+    Link(Link),
+    Channel(Channel),
+    Gradient(Gradient),
+    ScalarChannel(ScalarChannel),
+    VectorChannel(VectorChannel),
+    StringChannel(StringChannel),
+    BlockChannel(BlockChannel),
+    ItemTag(ItemTag),
+    Unique(NullString),
+    Index(u32),
+    VisibleName(NullString),
+    BoundingBox(BoundingBox),
+    Unknown((SubChunkHeader, Vec<u8>)),
+}
+
 #[derive(Debug)]
 pub struct Item {
     pub kind: NullString,
     pub name: NullString,
     pub id: u32,
-
-    pub reference: Option<Reference>,
-
-    pub package: Option<Package>,
-
-    pub layer: Option<Layer>,
-
+    subchunks: Vec<ItemSubchunk>,
+    /*
     pub user_channels: Vec<UserChannel>,
     pub channel_links: Vec<ChannelLink>,
-
-    pub links: Vec<Link>,
-
     pub channels: Vec<Channels>,
+    */
+}
 
-    pub tags: Vec<ItemTag>,
+impl Item {
+    /// Get reference to the first available reference subchunk
+    pub fn reference(&self) -> Option<&Reference> {
+        for chunk in &self.subchunks {
+            if let ItemSubchunk::Reference(reference) = chunk {
+                return Some(reference);
+            }
+        }
+        None
+    }
 
-    pub ident: Option<NullString>,
-    pub index: Option<u32>,
+    /// Get reference to the first available package subchunk
+    pub fn package(&self) -> Option<&Package> {
+        for chunk in &self.subchunks {
+            if let ItemSubchunk::Package(package) = chunk {
+                return Some(package);
+            }
+        }
+        None
+    }
 
-    pub visible_name: Option<NullString>,
+    pub fn ident(&self) -> Option<&NullString> {
+        for chunk in &self.subchunks {
+            if let ItemSubchunk::Unique(ident) = chunk {
+                return Some(ident);
+            }
+        }
+        None
+    }
 
-    pub bounds: Option<BoundingBox>,
+    pub fn index(&self) -> Option<u32> {
+        for chunk in &self.subchunks {
+            if let ItemSubchunk::Index(index) = chunk {
+                return Some(*index);
+            }
+        }
+        None
+    }
+
+    pub fn bounds(&self) -> Option<&BoundingBox> {
+        for chunk in &self.subchunks {
+            if let ItemSubchunk::BoundingBox(bounds) = chunk {
+                return Some(bounds);
+            }
+        }
+        None
+    }
+
+    /// Get reference to visible name
+    pub fn visible_name(&self) -> Option<&NullString> {
+        for chunk in &self.subchunks {
+            if let ItemSubchunk::VisibleName(name) = chunk {
+                return Some(name);
+            }
+        }
+        None
+    }
+
+    /// Get reference to first available layer
+    pub fn layer(&self) -> Option<&Layer> {
+        for chunk in &self.subchunks {
+            if let ItemSubchunk::Layer(layer) = chunk {
+                return Some(layer);
+            }
+        }
+        None
+    }
+
+    /// Return an iterator over all links
+    pub fn links(&self) -> impl Iterator<Item = &Link> {
+        self.subchunks.iter().filter_map(|chunk| match chunk {
+            ItemSubchunk::Link(link) => Some(link),
+            _ => None,
+        })
+    }
+
+    /// Return an iterator over all item tags
+    pub fn tags(&self) -> impl Iterator<Item = &ItemTag> {
+        self.subchunks.iter().filter_map(|chunk| match chunk {
+            ItemSubchunk::ItemTag(tag) => Some(tag),
+            _ => None,
+        })
+    }
 }
 
 impl ReadEndian for Item {
@@ -497,52 +546,60 @@ impl BinRead for Item {
         let name = read_aligned_nullstring(reader)?;
         let id = u32::read_be(reader)?;
 
-        let mut reference = None;
-        let mut layer = None;
-        let mut package = None;
-        let mut user_channels = vec![];
-        let mut channel_links = vec![];
-        let mut links = vec![];
-        let mut channels = vec![];
-        let mut tags = vec![];
-        let mut ident = None;
-        let mut index = None;
-        let mut visible_name = None;
-        let mut bounds = None;
+        let mut subchunks: Vec<ItemSubchunk> = vec![];
 
         while reader.stream_position()? - start < size as u64 {
             let header = SubChunkHeader::read_be(reader)?;
+            let pos = reader.stream_position()?;
 
             match header.kind.as_str() {
-                "XREF" => reference = Some(Reference::read_be(reader)?),
-                "LAYR" => layer = Some(Layer::read_be(reader)?),
-                "PAKG" => package = Some(Package::read_be(reader)?),
-                "UCHN" => user_channels.push(UserChannel::read_be(reader)?),
-                "CLNK" => channel_links.push(ChannelLink::read_be(reader)?),
-                "LINK" => links.push(Link::read(reader)?),
-                "GRAD" => {
-                    channels.push(Channels::GRAD(Gradient::read_be_args(reader, header.size)?))
+                "XREF" => subchunks.push(ItemSubchunk::Reference(Reference::read_be(reader)?)),
+                "LAYR" => subchunks.push(ItemSubchunk::Layer(Layer::read_be(reader)?)),
+                "PAKG" => subchunks.push(ItemSubchunk::Package(Package::read_be(reader)?)),
+                "UCHN" => subchunks.push(ItemSubchunk::UserChannel(UserChannel::read_be(reader)?)),
+                "CLNK" => subchunks.push(ItemSubchunk::ChannelLink(ChannelLink::read_be(reader)?)),
+                "LINK" => subchunks.push(ItemSubchunk::Link(Link::read(reader)?)),
+                "GRAD" => subchunks.push(ItemSubchunk::Gradient(Gradient::read_be_args(
+                    reader,
+                    header.size,
+                )?)),
+                "CHNL" => {
+                    subchunks.push(ItemSubchunk::ScalarChannel(ScalarChannel::read_be(reader)?))
                 }
-                "CHNL" => channels.push(Channels::CHNL(ScalarChannel::read_be(reader)?)),
-                "CHNV" => channels.push(Channels::CHNV(VectorChannel::read_be(reader)?)),
-                "CHNS" => channels.push(Channels::CHNS(StringChannel::read_be(reader)?)),
-                "CHAN" => channels.push(Channels::CHAN(Channel::read_be(reader)?)),
-                "BCHN" => channels.push(Channels::BCHN(BlockChannel::read_be(reader)?)),
-                "ITAG" => tags.push(ItemTag::read_be(reader)?),
-                "UNIQ" => ident = Some(read_aligned_nullstring(reader)?),
-                "UIDX" => index = Some(u32::read_be(reader)?),
-                "VNAM" => visible_name = Some(read_aligned_nullstring(reader)?),
-                "BBOX" => bounds = Some(BoundingBox::read_be(reader)?),
+                "CHNV" => {
+                    subchunks.push(ItemSubchunk::VectorChannel(VectorChannel::read_be(reader)?))
+                }
+                "CHNS" => {
+                    subchunks.push(ItemSubchunk::StringChannel(StringChannel::read_be(reader)?))
+                }
+                "CHAN" => subchunks.push(ItemSubchunk::Channel(Channel::read_be(reader)?)),
+                "BCHN" => {
+                    subchunks.push(ItemSubchunk::BlockChannel(BlockChannel::read_be(reader)?))
+                }
+                "ITAG" => subchunks.push(ItemSubchunk::ItemTag(ItemTag::read_be(reader)?)),
+                "UNIQ" => subchunks.push(ItemSubchunk::Unique(read_aligned_nullstring(reader)?)),
+                "UIDX" => subchunks.push(ItemSubchunk::Index(u32::read_be(reader)?)),
+                "VNAM" => {
+                    subchunks.push(ItemSubchunk::VisibleName(read_aligned_nullstring(reader)?))
+                }
+                "BBOX" => subchunks.push(ItemSubchunk::BoundingBox(BoundingBox::read_be(reader)?)),
                 _ => {
-                    let pos = reader.stream_position()?;
-                    eprintln!(
-                        "Unknown item subchunk {} at {} size: {}",
-                        header.kind,
-                        pos - 6,
-                        header.size + 6,
-                    );
-                    reader.seek_relative(header.size as i64)?;
+                    let mut data = Vec::with_capacity(header.size as usize);
+                    reader.read_exact(&mut data)?;
+                    subchunks.push(ItemSubchunk::Unknown((header, data)));
                 }
+            }
+
+            let consumed = reader.stream_position()? - pos;
+            if consumed != header.size as u64 {
+                return Err(binrw::Error::Custom {
+                    pos,
+                    err: Box::new(ParseError::SubchunkBoundaryMismatch {
+                        kind: header.kind.to_string(),
+                        expected: header.size,
+                        consumed,
+                    }),
+                });
             }
         }
 
@@ -550,18 +607,7 @@ impl BinRead for Item {
             kind,
             name,
             id,
-            reference,
-            layer,
-            package,
-            user_channels,
-            channel_links,
-            links,
-            channels,
-            tags,
-            ident,
-            index,
-            visible_name,
-            bounds,
+            subchunks,
         })
     }
 }
@@ -579,85 +625,62 @@ impl BinWrite for Item {
         write_aligned_nullstring(writer, &self.name)?;
         self.id.write_be(writer)?;
 
-        if let Some(reference) = &self.reference {
-            write_subchunk(writer, ID4::from_str("XREF").unwrap(), reference)?;
-        }
-
-        if let Some(layer) = &self.layer {
-            SubChunkHeader {
-                kind: ID4::from_str("LAYR").unwrap(),
-                size: 12u16,
+        for subchunk in &self.subchunks {
+            match subchunk {
+                ItemSubchunk::Reference(reference) => {
+                    write_subchunk(writer, ID4::from_str("XREF").unwrap(), reference)?
+                }
+                ItemSubchunk::Layer(layer) => {
+                    write_subchunk(writer, ID4::from_str("LAYR").unwrap(), layer)?
+                }
+                ItemSubchunk::Package(package) => {
+                    write_subchunk(writer, ID4::from_str("PAKG").unwrap(), package)?
+                }
+                ItemSubchunk::UserChannel(user_channel) => {
+                    write_subchunk(writer, ID4::from_str("UCHN").unwrap(), user_channel)?
+                }
+                ItemSubchunk::ChannelLink(channel_link) => {
+                    write_subchunk(writer, ID4::from_str("CLNK").unwrap(), channel_link)?
+                }
+                ItemSubchunk::Link(link) => {
+                    write_subchunk(writer, ID4::from_str("LINK").unwrap(), link)?
+                }
+                ItemSubchunk::Gradient(gradient) => {
+                    write_subchunk(writer, ID4::from_str("GRAD").unwrap(), gradient)?
+                }
+                ItemSubchunk::ScalarChannel(scalar_channel) => {
+                    write_subchunk(writer, ID4::from_str("CHNL").unwrap(), scalar_channel)?
+                }
+                ItemSubchunk::VectorChannel(vector_channel) => {
+                    write_subchunk(writer, ID4::from_str("CHNV").unwrap(), vector_channel)?
+                }
+                ItemSubchunk::StringChannel(string_channel) => {
+                    write_subchunk(writer, ID4::from_str("CHNS").unwrap(), string_channel)?
+                }
+                ItemSubchunk::Channel(channel) => {
+                    write_subchunk(writer, ID4::from_str("CHAN").unwrap(), channel)?
+                }
+                ItemSubchunk::BlockChannel(block_channel) => {
+                    write_subchunk(writer, ID4::from_str("BCHN").unwrap(), block_channel)?
+                }
+                ItemSubchunk::ItemTag(itag) => {
+                    write_subchunk(writer, ID4::from_str("ITAG").unwrap(), itag)?
+                }
+                ItemSubchunk::Unique(unique) => {
+                    write_subchunk(writer, ID4::from_str("UNIQ").unwrap(), unique)?
+                }
+                ItemSubchunk::Index(index) => {
+                    write_subchunk(writer, ID4::from_str("UIDX").unwrap(), index)?
+                }
+                ItemSubchunk::VisibleName(name) => {
+                    write_subchunk(writer, ID4::from_str("VNAM").unwrap(), name)?
+                }
+                ItemSubchunk::BoundingBox(bounds) => {
+                    write_subchunk(writer, ID4::from_str("BBOX").unwrap(), bounds)?
+                }
+                ItemSubchunk::Unknown((header, data)) => write_subchunk(writer, header.kind, data)?,
             }
-            .write_be(writer)?;
-            layer.write_be(writer)?;
         }
-
-        if let Some(package) = &self.package {
-            write_subchunk(writer, ID4::from_str("PAKG").unwrap(), package)?;
-        }
-
-        for channel in &self.user_channels {
-            write_subchunk(writer, ID4::from_str("UCHN").unwrap(), channel)?;
-        }
-
-        for channel_link in &self.channel_links {
-            write_subchunk(writer, ID4::from_str("CLNK").unwrap(), channel_link)?;
-        }
-
-        for link in &self.links {
-            write_subchunk(writer, ID4::from_str("LINK").unwrap(), link)?;
-        }
-
-        for channel in &self.channels {
-            write_subchunk(writer, channel.subchunk_kind(), channel)?;
-        }
-
-        for tag in &self.tags {
-            write_subchunk(writer, ID4::from_str("ITAG").unwrap(), tag)?;
-        }
-
-        if let Some(ident) = &self.ident {
-            let mut buf = Cursor::new(Vec::new());
-            write_aligned_nullstring(&mut buf, ident)?;
-            let data = buf.into_inner();
-            SubChunkHeader {
-                kind: ID4::from_str("UNIQ").unwrap(),
-                size: data.len() as u16,
-            }
-            .write_be(writer)?;
-            writer.write_all(&data)?;
-        }
-
-        if let Some(index) = &self.index {
-            SubChunkHeader {
-                kind: ID4::from_str("UIDX").unwrap(),
-                size: 4u16,
-            }
-            .write_be(writer)?;
-            index.write_be(writer)?;
-        }
-
-        if let Some(visible_name) = &self.visible_name {
-            let mut buf = Cursor::new(Vec::new());
-            write_aligned_nullstring(&mut buf, visible_name)?;
-            let data = buf.into_inner();
-            SubChunkHeader {
-                kind: ID4::from_str("VNAM").unwrap(),
-                size: data.len() as u16,
-            }
-            .write_be(writer)?;
-            writer.write_all(&data)?;
-        }
-
-        if let Some(bounds) = &self.bounds {
-            SubChunkHeader {
-                kind: ID4::from_str("BBOX").unwrap(),
-                size: 24u16,
-            }
-            .write_be(writer)?;
-            bounds.write_be(writer)?;
-        }
-
         Ok(())
     }
 }
@@ -1263,24 +1286,23 @@ mod tests {
         assert!(item.name.is_empty());
         assert_eq!(item.id, 0);
 
-        assert!(item.reference.is_none());
+        assert!(item.reference().is_none());
         assert_eq!(
-            item.layer,
-            Some(Layer {
+            item.layer(),
+            Some(&Layer {
                 index: 0,
                 flags: LayerVisibilityFlags::Visible | LayerVisibilityFlags::Foreground,
                 color: [200, 200, 200, 255]
             })
         );
-        assert!(item.links.is_empty());
-        assert_eq!(item.channels.len(), 30);
-        assert!(item.tags.is_empty());
-        assert_eq!(item.ident, Some("mesh002".into()));
-        assert_eq!(item.index, Some(1));
-        assert_eq!(item.visible_name, Some("Mesh".into()));
+        assert_eq!(item.links().count(), 0);
+        assert_eq!(item.tags().count(), 0);
+        assert_eq!(item.ident(), Some(&"mesh002".into()));
+        assert_eq!(item.index(), Some(1));
+        assert_eq!(item.visible_name(), Some(&"Mesh".into()));
         assert_eq!(
-            item.bounds,
-            Some(BoundingBox {
+            item.bounds(),
+            Some(&BoundingBox {
                 min: [-0.5, -0.5, -0.5],
                 max: [0.5, 0.5, 0.5]
             })
