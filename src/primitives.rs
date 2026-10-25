@@ -1,6 +1,7 @@
 use crate::utils::{read_aligned_nullstring, write_aligned_nullstring};
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{BinRead, BinResult, BinWrite, Endian, NullString};
+use bitflags::bitflags;
 use std::fmt;
 use std::io::{Read, Seek, Write};
 use std::str::FromStr;
@@ -208,12 +209,27 @@ impl From<[f32; 3]> for Point {
     }
 }
 
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct ChannelDataMask: u16 {
+        const INTEGER          = 0x1;
+        const FLOAT            = 0x2;
+        const STRING           = 0x3;
+        const DATA             = 0x4;
+        const ENVELOPE         = 0x10;
+        const ENVELOPE_INTEGER = 0x11;
+        const ENVELOPE_FLOAT   = 0x12;
+        const ENVELOPE_STRING  = 0x13;
+        const ENVELOPE_DATA    = 0x14;
+        const UNDEFINED_ACTION = 0x20;
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChannelValue {
     Integer(i32),
     Float(f32),
     String(NullString),
-    // Legacy: Only found on CHNL and CHNV subchunks of ITEM
     Data(Vec<u8>),
 }
 
@@ -222,26 +238,37 @@ impl ReadEndian for ChannelValue {
 }
 
 impl BinRead for ChannelValue {
-    type Args<'a> = (u16,);
+    type Args<'a> = (ChannelDataMask,);
 
     fn read_options<R: Read + Seek>(
         reader: &mut R,
         _endian: binrw::Endian,
         flag: Self::Args<'_>,
     ) -> BinResult<Self> {
-        // 0x20 is Undefined Action, ie this channel is not animated? Or at least not present in
-        // actions
-        match flag.0 & !0x20 {
-            0x1 | 0x11 => Ok(ChannelValue::Integer(i32::read_be(reader)?)),
-            0x2 | 0x12 => Ok(ChannelValue::Float(f32::read_be(reader)?)),
-            0x3 | 0x13 => Ok(ChannelValue::String(read_aligned_nullstring(reader)?)),
+        match flag.0 & !ChannelDataMask::UNDEFINED_ACTION {
+            ChannelDataMask::INTEGER | ChannelDataMask::ENVELOPE_INTEGER => {
+                Ok(ChannelValue::Integer(i32::read_be(reader)?))
+            }
+            ChannelDataMask::FLOAT | ChannelDataMask::ENVELOPE_FLOAT => {
+                Ok(ChannelValue::Float(f32::read_be(reader)?))
+            }
+            ChannelDataMask::STRING | ChannelDataMask::ENVELOPE_STRING => {
+                Ok(ChannelValue::String(read_aligned_nullstring(reader)?))
+            }
+            ChannelDataMask::DATA | ChannelDataMask::ENVELOPE_DATA => {
+                let size = u16::read_be(reader)?;
+                let mut data = vec![0u8; size as usize];
+                reader.read_exact(&mut data)?;
+                Ok(ChannelValue::Data(data))
+            }
             _ => {
                 let pos = reader.stream_position()?;
                 Err(binrw::Error::Custom {
                     pos,
                     err: Box::new(std::io::Error::other(format!(
-                        "Invalid ItemFlag {} at: {}",
-                        flag.0, pos
+                        "Invalid ChannelDataMask {} at: {}",
+                        flag.0.bits(),
+                        pos
                     ))),
                 })
             }
@@ -310,7 +337,7 @@ mod tests {
     #[test]
     fn channel_value_integer() {
         let mut reader = Cursor::new([0x00, 0x00, 0x00, 0x2a]);
-        let value = ChannelValue::read_be_args(&mut reader, (1u16,)).unwrap();
+        let value = ChannelValue::read_be_args(&mut reader, (ChannelDataMask::INTEGER,)).unwrap();
 
         let mut writer = Cursor::new(vec![]);
         value.write_be(&mut writer).unwrap();
@@ -321,7 +348,7 @@ mod tests {
     #[test]
     fn channel_value_float() {
         let mut reader = Cursor::new([0x3f, 0x80, 0x00, 0x00]);
-        let value = ChannelValue::read_be_args(&mut reader, (2u16,)).unwrap();
+        let value = ChannelValue::read_be_args(&mut reader, (ChannelDataMask::FLOAT,)).unwrap();
 
         let mut writer = Cursor::new(vec![]);
         value.write_be(&mut writer).unwrap();
@@ -332,7 +359,7 @@ mod tests {
     #[test]
     fn channel_value_string() {
         let mut reader = Cursor::new(b"Hello world!\0\0");
-        let value = ChannelValue::read_be_args(&mut reader, (3u16,)).unwrap();
+        let value = ChannelValue::read_be_args(&mut reader, (ChannelDataMask::STRING,)).unwrap();
 
         let mut writer = Cursor::new(vec![]);
         value.write_be(&mut writer).unwrap();

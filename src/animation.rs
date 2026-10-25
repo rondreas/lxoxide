@@ -1,4 +1,4 @@
-use crate::primitives::{ChannelValue, ID4, SubChunkHeader, VX};
+use crate::primitives::{ChannelDataMask, ChannelValue, ID4, SubChunkHeader, VX};
 use crate::utils::{read_aligned_nullstring, write_aligned_nullstring, write_subchunk};
 use binrw::{BinRead, BinResult, BinWrite, Endian, NullString};
 use bitflags::bitflags;
@@ -231,7 +231,9 @@ pub struct Action {
 #[derive(BinRead, BinWrite, Debug)]
 pub struct ActionChannel {
     pub channel_index: VX,
-    pub kind: u16,
+    #[br(map = |mask: u16| ChannelDataMask::from_bits_retain(mask))]
+    #[bw(map = |mask: &ChannelDataMask| mask.bits())]
+    pub kind: ChannelDataMask,
     pub envelope_index: VX,
     #[br(args(kind))]
     pub variable: ChannelValue,
@@ -252,7 +254,9 @@ pub struct ActionNamedChannel {
     pub name: NullString,
 
     /// Type of the channel
-    pub kind: u16,
+    #[br(map = |mask: u16| ChannelDataMask::from_bits_retain(mask))]
+    #[bw(map = |mask: &ChannelDataMask| mask.bits())]
+    pub kind: ChannelDataMask,
 
     /// Index of the envelope in the ENVL chunk's array, if applicable
     pub envelope_index: VX,
@@ -596,7 +600,7 @@ mod tests {
         let channel = ActionChannel::read_be(&mut reader).unwrap();
 
         assert_eq!(channel.channel_index, VX::U2(421));
-        assert_eq!(channel.kind, 2);
+        assert_eq!(channel.kind, ChannelDataMask::FLOAT);
         assert_eq!(channel.envelope_index, VX::U2(0));
         assert_eq!(channel.variable, ChannelValue::Float(1.0));
 
@@ -614,7 +618,7 @@ mod tests {
         let chan = ActionChannel::read_be(&mut reader).unwrap();
 
         assert_eq!(chan.channel_index, VX::U2(473));
-        assert_eq!(chan.kind, 3);
+        assert_eq!(chan.kind, ChannelDataMask::STRING);
         assert_eq!(chan.envelope_index, VX::U2(0));
         assert_eq!(chan.variable, ChannelValue::String("frames".into()));
 

@@ -1,5 +1,5 @@
 use crate::ParseError;
-use crate::primitives::{ChannelValue, ID4, SubChunkHeader, VX};
+use crate::primitives::{ChannelDataMask, ChannelValue, ID4, SubChunkHeader, VX};
 use crate::utils::{read_aligned_nullstring, write_aligned_nullstring, write_subchunk};
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{
@@ -85,7 +85,9 @@ pub struct Package {
 #[br(big)]
 pub struct Channel {
     pub index: VX,
-    pub kind: u16,
+    #[br(map = |mask: u16| ChannelDataMask::from_bits_retain(mask))]
+    #[bw(map = |mask: &ChannelDataMask| mask.bits())]
+    pub kind: ChannelDataMask,
     #[br(args(kind))]
     pub value: ChannelValue,
 }
@@ -224,7 +226,7 @@ impl BinRead for VectorElement {
         kind: Self::Args<'_>,
     ) -> BinResult<VectorElement> {
         let name = read_aligned_nullstring(reader)?;
-        let value = read_channel_value(reader, kind)?;
+        let value = ChannelValue::read_be_args(reader, (*kind,))?;
         Ok(VectorElement { name, value })
     }
 }
@@ -254,61 +256,16 @@ pub struct ItemTag {
     pub tag: NullString,
 }
 
-bitflags! {
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct ChannelDataMask: u16 {
-        const Integer   = 0b0001;
-        const Float     = 0b0010;
-        const String    = 0b0100;
-        const Data      = 0b1000;
-    }
-}
-
-fn read_channel_value<R: Read + Seek>(
-    reader: &mut R,
-    kind: &ChannelDataMask,
-) -> Result<ChannelValue, binrw::Error> {
-    if kind.contains(ChannelDataMask::Integer) {
-        Ok(ChannelValue::Integer(i32::read_be(reader)?))
-    } else if kind.contains(ChannelDataMask::Float) {
-        Ok(ChannelValue::Float(f32::read_be(reader)?))
-    } else if kind.contains(ChannelDataMask::String) {
-        Ok(ChannelValue::String(read_aligned_nullstring(reader)?))
-    } else if kind.contains(ChannelDataMask::Data) {
-        let size = u16::read_be(reader)?;
-        let mut data = vec![0u8; size as usize];
-        reader.read_exact(&mut data)?;
-        Ok(ChannelValue::Data(data))
-    } else {
-        Err(binrw::Error::Custom {
-            pos: reader.stream_position()?,
-            err: Box::new(ParseError::InvalidChannelDataMask),
-        })
-    }
-}
-
-#[derive(Debug, BinWrite, Clone, PartialEq)]
+#[derive(Debug, BinRead, BinWrite, Clone, PartialEq)]
 pub struct ScalarChannel {
+    #[br(align_after = 2)]
     #[bw(align_after = 2)]
     pub name: NullString,
-    #[bw(map=|mask: &ChannelDataMask| mask.bits())]
+    #[br(map = |mask: u16| ChannelDataMask::from_bits_retain(mask))]
+    #[bw(map = |mask: &ChannelDataMask| mask.bits())]
     pub kind: ChannelDataMask,
+    #[br(args(kind))]
     pub value: ChannelValue,
-}
-
-impl BinRead for ScalarChannel {
-    type Args<'a> = ();
-
-    fn read_options<R: Read + Seek>(
-        reader: &mut R,
-        _endian: binrw::Endian,
-        _: Self::Args<'_>,
-    ) -> BinResult<Self> {
-        let name = read_aligned_nullstring(reader)?;
-        let kind = ChannelDataMask::from_bits_retain(u16::read_be(reader)?);
-        let value = read_channel_value(reader, &kind)?;
-        Ok(ScalarChannel { name, kind, value })
-    }
 }
 
 #[derive(BinRead, BinWrite, Debug, Clone, PartialEq)]
@@ -769,13 +726,35 @@ mod tests {
     #[test]
     fn channel_data_mask() {
         let mask = ChannelDataMask::from_bits_retain(2u16);
-        assert!(mask.contains(ChannelDataMask::Float));
-        assert_eq!(mask, ChannelDataMask::Float);
+        assert!(mask.contains(ChannelDataMask::FLOAT));
+        assert_eq!(mask, ChannelDataMask::FLOAT);
 
-        // Not sure what this extra bit means here... but this is seen on color
-        // related channel data types. Seen on renderer, environment and materials
         let mask = ChannelDataMask::from_bits_retain(34u16);
-        assert!(mask.contains(ChannelDataMask::Float));
+        assert!(mask.contains(ChannelDataMask::FLOAT));
+    }
+
+    #[test]
+    fn scalar_channel() {
+        // sourced from cube.lxl, xxd -s 0x219a -l 20 -i ./tests/fixtures/cube.lxl
+        let mut reader = Cursor::new([
+            0x43, 0x48, 0x4e, 0x4c, 0x00, 0x0e, 0x74, 0x79, 0x70, 0x65, 0x00, 0x00, 0x00, 0x03,
+            0x63, 0x6f, 0x72, 0x65, 0x00, 0x00,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let scalar = ScalarChannel::read_be(&mut reader).unwrap();
+
+        assert_eq!(scalar.name, "type".into());
+        assert_eq!(scalar.kind, ChannelDataMask::STRING);
+        assert_eq!(scalar.value, ChannelValue::String("core".into()));
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&scalar).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
     }
 
     #[test]
@@ -790,7 +769,7 @@ mod tests {
         let vc = VectorChannel::read_be(&mut reader).unwrap();
 
         assert_eq!(vc.name, "pos".into());
-        assert!(vc.kind.contains(ChannelDataMask::Float));
+        assert!(vc.kind.contains(ChannelDataMask::FLOAT));
         assert_eq!(vc.dimensions, 3);
 
         assert_eq!(
@@ -825,7 +804,7 @@ mod tests {
     }
 
     #[test]
-    fn ambient_color_vector_channel() {
+    fn ambient_color_vector_channel_undefined_action() {
         let mut reader = Cursor::new([
             0x43, 0x48, 0x4e, 0x56, 0x00, 0x20, 0x61, 0x6d, 0x62, 0x43, 0x6f, 0x6c, 0x6f, 0x72,
             0x00, 0x00, 0x00, 0x22, 0x00, 0x03, 0x52, 0x00, 0x3f, 0x80, 0x00, 0x00, 0x47, 0x00,
@@ -836,9 +815,10 @@ mod tests {
         let vc = VectorChannel::read_be(&mut reader).unwrap();
 
         assert_eq!(vc.name, "ambColor".into());
-        // kind here is 34u16, so not sure what 0x20 bit represent here but it's only
-        // seen in 'color' related CHNV
-        assert!(vc.kind.contains(ChannelDataMask::Float));
+        assert_eq!(
+            vc.kind,
+            ChannelDataMask::FLOAT | ChannelDataMask::UNDEFINED_ACTION
+        );
         assert_eq!(vc.dimensions, 3);
 
         assert_eq!(
@@ -873,6 +853,52 @@ mod tests {
     }
 
     #[test]
+    fn ambient_color_vector_channel_constant() {
+        let mut reader = Cursor::new([
+            0x43, 0x48, 0x4e, 0x56, 0x00, 0x20, 0x61, 0x6d, 0x62, 0x43, 0x6f, 0x6c, 0x6f, 0x72,
+            0x00, 0x00, 0x00, 0x02, 0x00, 0x03, 0x52, 0x00, 0x3f, 0x71, 0x68, 0x73, 0x47, 0x00,
+            0x3f, 0x36, 0xae, 0x7d, 0x42, 0x00, 0x3f, 0x14, 0x6d, 0xc6,
+        ]);
+
+        let header = SubChunkHeader::read_be(&mut reader).unwrap();
+        let vc = VectorChannel::read_be(&mut reader).unwrap();
+
+        assert_eq!(vc.name, "ambColor".into());
+        assert_eq!(vc.kind, ChannelDataMask::FLOAT);
+        assert_eq!(vc.dimensions, 3);
+
+        assert_eq!(
+            vc.elements[0],
+            VectorElement {
+                name: "R".into(),
+                value: ChannelValue::Float(0.943)
+            }
+        );
+        assert_eq!(
+            vc.elements[1],
+            VectorElement {
+                name: "G".into(),
+                value: ChannelValue::Float(0.7136)
+            }
+        );
+        assert_eq!(
+            vc.elements[2],
+            VectorElement {
+                name: "B".into(),
+                value: ChannelValue::Float(0.5798)
+            }
+        );
+
+        assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
+
+        let mut writer = Cursor::new(vec![]);
+        writer.write_be(&header).unwrap();
+        writer.write_be(&vc).unwrap();
+
+        assert_eq!(writer.into_inner(), reader.into_inner());
+    }
+
+    #[test]
     fn integer_channel() {
         let mut reader = Cursor::new([
             0x43, 0x48, 0x41, 0x4e, 0x00, 0x08, 0x01, 0xe8, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
@@ -882,7 +908,7 @@ mod tests {
         let chan = Channel::read_be(&mut reader).unwrap();
 
         assert_eq!(chan.index, VX::U2(488));
-        assert_eq!(chan.kind, 1);
+        assert_eq!(chan.kind, ChannelDataMask::INTEGER);
         assert_eq!(chan.value, ChannelValue::Integer(1));
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
@@ -898,7 +924,10 @@ mod tests {
         let chan = Channel::read_be(&mut reader).unwrap();
 
         assert_eq!(chan.index, VX::U2(224));
-        assert_eq!(chan.kind, 0x21);
+        assert_eq!(
+            chan.kind,
+            ChannelDataMask::INTEGER | ChannelDataMask::UNDEFINED_ACTION
+        );
         assert_eq!(chan.value, ChannelValue::Integer(1));
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
@@ -914,7 +943,7 @@ mod tests {
         let chan = Channel::read_be(&mut reader).unwrap();
 
         assert_eq!(chan.index, VX::U2(189));
-        assert_eq!(chan.kind, 0x02);
+        assert_eq!(chan.kind, ChannelDataMask::FLOAT);
         assert_eq!(chan.value, ChannelValue::Float(1.0));
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
@@ -930,7 +959,10 @@ mod tests {
         let chan = Channel::read_be(&mut reader).unwrap();
 
         assert_eq!(chan.index, VX::U2(238));
-        assert_eq!(chan.kind, 0x22);
+        assert_eq!(
+            chan.kind,
+            ChannelDataMask::FLOAT | ChannelDataMask::UNDEFINED_ACTION
+        );
         assert_eq!(chan.value, ChannelValue::Float(0.5));
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
@@ -946,7 +978,7 @@ mod tests {
         let chan = Channel::read_be(&mut reader).unwrap();
 
         assert_eq!(chan.index, VX::U2(164));
-        assert_eq!(chan.kind, 0x03);
+        assert_eq!(chan.kind, ChannelDataMask::STRING);
         assert_eq!(chan.value, ChannelValue::String("off".into()));
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
@@ -969,7 +1001,10 @@ mod tests {
         let chan = Channel::read_be(&mut reader).unwrap();
 
         assert_eq!(chan.index, VX::U2(71));
-        assert_eq!(chan.kind, 0x23);
+        assert_eq!(
+            chan.kind,
+            ChannelDataMask::STRING | ChannelDataMask::UNDEFINED_ACTION
+        );
         assert_eq!(chan.value, ChannelValue::String("default".into()));
 
         assert_eq!(reader.stream_position().unwrap(), (header.size + 6).into());
