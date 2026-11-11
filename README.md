@@ -55,6 +55,9 @@ The `LuxologyFile` struct provides access to:
 ```bash
 # Dump chunk structure of an LXO file
 cargo run --example dump path/to/file.lxo
+
+# Parse a file, serialize it back, and verify the bytes are identical
+cargo run --example roundtrip path/to/file.lxo [output.lxo]
 ```
 
 ## Format Details
