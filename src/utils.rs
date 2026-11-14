@@ -68,6 +68,9 @@ where
     Ok(())
 }
 
+// Setting this to allow dead code as I think I will likely use it in future reading
+// some chunks in full then parsing it's bytes.
+#[allow(dead_code)]
 pub fn read_nullstring_from_bytes(buf: &[u8]) -> Result<(NullString, usize), binrw::Error> {
     let null_pos = buf.iter().position(|&b| b == 0).ok_or_else(|| {
         binrw::Error::Io(std::io::Error::new(
