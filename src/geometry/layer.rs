@@ -2,7 +2,7 @@ use crate::primitives::{ID4, Point, VX};
 use crate::utils::read_aligned_nullstring;
 use binrw::meta::{EndianKind, ReadEndian};
 use binrw::{
-    BinRead, BinResult, BinWrite, Endian, NullString,
+    binrw, BinRead, BinResult, BinWrite, Endian, NullString,
     io::{Read, Seek, Write},
 };
 use bitflags::bitflags;
@@ -77,18 +77,6 @@ pub enum BoundaryRules {
     CreaseEdges,
 }
 
-// Optional data for layers, mostly unknown what the fields mean.
-#[derive(BinRead, BinWrite, Debug)]
-#[br(big)]
-#[bw(big)]
-pub struct Multiresolution {
-    pub unk0: [u8; 8],
-    #[br(align_after = 2)]
-    #[bw(align_after = 2)]
-    pub name: NullString,
-    pub unk1: [u8; 34],
-}
-
 #[derive(Debug)]
 pub struct PolygonGroup {
     pub polygons: PolygonList,
@@ -130,6 +118,45 @@ pub enum Smoothing {
     AlwaysDisabled,
 }
 
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct MultiresolutionState: u32 {
+        const ENABLED = 1;
+        const SELCTED = 2;
+    }
+}
+
+/// Sculpting Data for multiresolution layers
+#[derive(BinRead, BinWrite, Debug)]
+#[br(big)]
+#[bw(big)]
+pub struct SculptData {
+    /// Vertex index
+    pub index: u32,
+    /// Offset
+    pub data: [f32; 3],
+}
+
+// Optional data for layers, mostly unknown what the fields mean.
+#[derive(BinRead, BinWrite, Debug)]
+#[br(big)]
+#[bw(big)]
+pub struct Multiresolution {
+    #[br(align_after = 2)]
+    #[bw(align_after = 2)]
+    pub name: NullString,
+    pub num_points: u32,
+    pub num_sculpt: u32,
+    #[br(map=|mask: u32| MultiresolutionState::from_bits_retain(mask))]
+    #[bw(map=|mask: &MultiresolutionState| mask.bits())]
+    pub state: MultiresolutionState,
+    pub unk0: u32,
+    pub opacity: f32,
+    pub unk1: [u32; 3], // had 12 u8 prior....
+    #[br(count=num_sculpt)]
+    pub data: Vec<SculptData>,
+}
+
 /// Layer (`LAYR`)
 ///
 /// Represents an editable geometry layer in Modo. Unlike static meshes (trisurfs),
@@ -138,21 +165,30 @@ pub enum Smoothing {
 ///
 /// Signals the start of a new layer. All the data chunks which follow will be
 /// included in this layer until another layer chunk is encountered
-#[derive(BinRead, BinWrite, Debug)]
+#[binrw]
+#[derive(Debug)]
 #[br(big)]
 #[bw(big)]
 pub struct Layer {
     pub index: u16,
+
     #[br(map = |x: u16| LayerFlag::from_bits_retain(x))]
     #[bw(map = |x: &LayerFlag| x.bits())]
     pub flags: LayerFlag,
+
     pub pivot: [f32; 3],
+
     #[br(align_after = 2)]
     #[bw(align_after = 2)]
     pub name: NullString,
+
+    // Legacy, unused - often 0xffff
     pub parent: u16,
+
     /// Specifies to what degree an SDS model is divided.
     pub subdivision_level: f32,
+
+    /// Curve angle in radians
     pub curve_angle: f32,
 
     /// 3x3 Matrix for scale and rotation (I think, only seen as identity in all samples )
@@ -163,26 +199,56 @@ pub struct Layer {
     // pub scale_pivot: [f32; 3],
     // pub unused: [u32; 6],
     pub reference: u32,
+
     /// Controls the number of polygons used when parametrically defining a surface with curves.
     pub spline_patch_level: u16,
+
     pub future_expansion: [u16; 3],
+
     pub boundary_rules: BoundaryRules,
+
     /// Sets an independent render level for subdividing the geometry only when render commands are invoked.
     pub catmull_render_level: u16,
+
+    #[br(if(flags.contains(LayerFlag::MULTIRESOLUTION)))]
+    #[bw(
+        if(flags & LayerFlag::MULTIRESOLUTION.bits() != 0),
+        try_calc=u32::try_from(sculpt_data.len())
+    )]
+    pub sculpt_records: u32,
+
+    #[br(if(flags.contains(LayerFlag::MULTIRESOLUTION)), count=sculpt_records)]
+    #[bw(if(flags & LayerFlag::MULTIRESOLUTION.bits() != 0))]
+    pub sculpt_data: Vec<SculptData>,
+
     /// Controls how finely a Catmull-Clark surface is subdivided.
     pub catmull_subdivision_level: u16,
+
+    /// Used to step through subdivision levels (up to the maximum defined by the subdivision level) when multiresolution is enabled.
+    pub catmull_current_level: u16,
+
     /// Sets an independent render level for subdividing the geometry only when render commands are invoked.
     pub subdivision_render_level: u16,
+
     #[br(map = |x: u16| x != 0)]
     #[bw(map = |x: &bool| u16::from(*x))]
     /// Stores normal vectors in memory to increase brush stroke performance when sculpting a multi-resolution mesh.
     pub cache_normal_vectors: bool,
-    /// Used to step through subdivision levels (up to the maximum defined by the subdivision level) when multiresolution is enabled.
-    pub catmull_current_level: u16,
+
     pub smoothing: Smoothing,
 
+    /// Number of multiresolution layers
     #[br(if(flags.contains(LayerFlag::MULTIRESOLUTION)))]
-    pub multires: Option<Multiresolution>,
+    #[bw(if(flags & LayerFlag::MULTIRESOLUTION.bits() != 0))]
+    pub num_layers: u32,
+
+    #[br(if(flags.contains(LayerFlag::MULTIRESOLUTION)), count=num_layers)]
+    #[bw(if(flags & LayerFlag::MULTIRESOLUTION.bits() != 0))]
+    pub multires: Vec<Multiresolution>,
+
+    #[br(if(flags.contains(LayerFlag::MULTIRESOLUTION)))]
+    #[bw(if(flags & LayerFlag::MULTIRESOLUTION.bits() != 0))]
+    pub mulres_tail: u16, // should be the last two bytes
 
     #[br(ignore)]
     #[bw(ignore)]
@@ -645,31 +711,67 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_layer_cube_lxo() {
+    fn default_empty_layer() {
+        // This is testing a default layer, opening a new scene with safe mode should
+        // produce this layer artefact.
+        //
+        // Potentially redundant test, as we are testing this in integration.rs when
+        // roundtripping default.lxo
+        //
+        // To recreate this fixture, run modo_cl or modo in safe mode. 
+        //
+        // ```lxm
+        // scene.saveAs {path/to/scene.lxo} $LXOB false
+        // ```
+        //
+        // Then xxd -i to pull the layer bytes. You can use the dump.rs to find byte
+        // offset and chunk size.
+        #[rustfmt::skip]
         let mut reader = Cursor::new([
-            0x4c, 0x41, 0x59, 0x52, 0x00, 0x00, 0x00, 0x5a, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff,
-            0x40, 0x00, 0x00, 0x00, 0x3d, 0xb2, 0xb8, 0xc2, 0x3f, 0x80, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x01, 0x00, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+            0x4c, 0x41, 0x59, 0x52, 0x00, 0x00, 0x00, 0x5a, 0x00, 0x00, 0x00, 0x05,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0xff, 0xff, 0x40, 0x00, 0x00, 0x00, 0x3d, 0xb2, 0xb8, 0xc2,
+            0x3f, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x01, 0x00, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x01, 0x00, 0x01,
+            0x00, 0x00
         ]);
 
         let header: ChunkHeader = reader.read_be().unwrap();
         let layer: Layer = reader.read_be().unwrap();
 
-        assert_eq!(layer.index, 0, "Failed to parse index");
+        assert_eq!(layer.index, 0);
         assert_eq!(layer.flags, LayerFlag::DEFAULT);
+        assert_eq!(layer.pivot, [0.0f32;3]);
         assert!(layer.name.is_empty());
         assert_eq!(layer.parent, 0xffff);
-        assert_eq!(layer.subdivision_level, 2.0);
+        assert_eq!(layer.subdivision_level, 2.0f32);
+        assert_eq!(layer.curve_angle.to_degrees(), 5.0);
+        assert_eq!(layer.matrix, [
+            1.0, 0.0, 0.0,
+            0.0, 1.0, 0.0,
+            0.0, 0.0, 1.0
+        ]);
         assert_eq!(layer.reference, 0);
         assert_eq!(layer.spline_patch_level, 16);
+
+        // Only ever witnessed this being zero, so might make field private
+        // and not have any accessors
         assert_eq!(layer.future_expansion, [0u16; 3]);
+
         assert_eq!(layer.boundary_rules, BoundaryRules::CreaseAll);
 
-        assert!(layer.multires.is_none());
+        assert_eq!(layer.catmull_render_level, 2);
+        assert_eq!(layer.catmull_subdivision_level, 2);
+        assert_eq!(layer.catmull_current_level, 2);
+
+        assert_eq!(layer.subdivision_render_level, 1);
+        assert!(layer.cache_normal_vectors);
+        assert_eq!(layer.smoothing, Smoothing::AlwaysEnabled);
+
+        assert!(layer.multires.is_empty());
 
         assert_eq!(
             reader.stream_position().unwrap(),
@@ -868,7 +970,7 @@ mod tests {
         assert_eq!(layer.spline_patch_level, 3);
         assert_eq!(layer.curve_angle, 15f32.to_radians());
 
-        assert!(layer.multires.is_some());
+        assert_eq!(layer.multires.len(), 1);
 
         assert_eq!(
             reader.stream_position().unwrap(),
@@ -903,13 +1005,131 @@ mod tests {
         assert_eq!(layer.parent, 0xffff);
         assert_eq!(layer.subdivision_level, 2f32);
 
-        assert!(layer.multires.is_some());
+        assert_eq!(layer.multires.len(), 1);
 
         assert_eq!(
             reader.stream_position().unwrap(),
             (header.size + 8).into(),
             "Failed to read the whole chunk"
         );
+    }
+
+    #[test]
+    fn three_layers_multiresolution() {
+        // A multiresolution mesh can contain multiple layers, see the included
+        // macro for how to reproduce the layer artefact for this test.
+        //
+        // This will be a unit cube, converted to catmull-clark subdivision and
+        // multiresolution. Layer 0 is the default layer name, unless different
+        // setting in Modo preferences. The two added layers are added to match
+        // results from adding through the UI.
+        //
+        // We also change some settings on the layers, like setting layer 1
+        // state to not be enabled. As layer 2 was created last that will be
+        // selected as well as enabled. And layer 0 has it's opacity changed to
+        // 15% which translates to 0.15 here.
+        //
+        // There will be no sculpting data on any of the layers.
+        //
+        // ```lxm
+        // !!item.delete
+        // script.implicit {Unit Cube Item}
+        // mesh.multireso mulreso:true convert:true
+        // mesh.multiresLayerOpacity item:Cube layer:0 opacity:0.15
+        // mesh.multiresLayerNew item:Cube name:{Layer 1}
+        // mesh.multiresLayerEnable item:Cube layer:1 enable:false
+        // mesh.multiresLayerNew item:Cube name:{Layer 2}
+        // mesh.presetSave "path/to/mesh.lxl"
+        // ```
+        #[rustfmt::skip]
+        let mut reader = Cursor::new([
+            0x4c, 0x41, 0x59, 0x52, 0x00, 0x00, 0x00, 0xe0, 0x00, 0x00, 0x20, 0x05,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x43, 0x75, 0x62, 0x65, 0x00, 0x00, 0xff, 0xff, 0x40, 0x00, 0x00, 0x00,
+            0x3d, 0xb2, 0xb8, 0xc2, 0x3f, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x3f, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+            0x00, 0x03, 0x4c, 0x61, 0x79, 0x65, 0x72, 0x20, 0x30, 0x00, 0x00, 0x00,
+            0x00, 0x62, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+            0x00, 0x00, 0x3e, 0x19, 0x99, 0x9a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4c, 0x61, 0x79, 0x65, 0x72, 0x20,
+            0x31, 0x00, 0x00, 0x00, 0x00, 0x62, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4c, 0x61,
+            0x79, 0x65, 0x72, 0x20, 0x32, 0x00, 0x00, 0x00, 0x00, 0x62, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x3f, 0x80,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00
+        ]);
+
+        let header = ChunkHeader::read_be(&mut reader).unwrap();
+        let layer = Layer::read_be(&mut reader).unwrap();
+
+        // I will ignore all fields for LAYR except those for the multiresolution
+        // layers in this test.
+
+        assert!(layer.sculpt_data.is_empty());
+        
+        assert_eq!(layer.num_layers, 3);
+
+        assert_eq!(layer.multires[0].name, "Layer 0".into());
+        assert_eq!(layer.multires[0].num_points, 98u32);
+        assert_eq!(layer.multires[0].num_sculpt, 0u32);
+        assert_eq!(layer.multires[0].state, MultiresolutionState::ENABLED);
+
+        assert_eq!(layer.multires[1].name, "Layer 1".into());
+        assert_eq!(layer.multires[1].num_points, 98u32);
+        assert_eq!(layer.multires[1].num_sculpt, 0u32);
+        assert!(layer.multires[1].state.is_empty());
+        
+        assert_eq!(layer.multires[2].name, "Layer 2".into());
+        assert_eq!(layer.multires[2].num_points, 98u32);
+        assert_eq!(layer.multires[2].num_sculpt, 0u32);
+        assert_eq!(
+            layer.multires[2].state,
+            MultiresolutionState::ENABLED|MultiresolutionState::SELCTED
+        );
+
+        // Final check we did consume all bytes for the layer chunk
+        assert_eq!(
+            reader.stream_position().unwrap(),
+            (header.size + 8).into(),
+            "Failed to read the whole chunk"
+        );
+    }
+
+    #[test]
+    fn default_multiresolution_layer() {
+        // This is an isolated multiresolution layer with default settings
+        //
+        // ```lxm
+        // !!item.delete
+        // script.implicit {Unit Cube Item}
+        // mesh.multireso mulreso:true convert:true
+        // mesh.presetSave "path/to/mesh.lxl"
+        // ```
+        #[rustfmt::skip]
+        let mut reader = Cursor::new([
+            0x4c, 0x61, 0x79, 0x65, 0x72, 0x20, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
+            0x3f, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00
+        ]);
+
+        let layer = Multiresolution::read_be(&mut reader).unwrap();
+
+        assert_eq!(layer.name, "Layer 0".into());
+        assert_eq!(layer.num_points, 0);
+        assert_eq!(layer.num_sculpt, 0);
+        assert_eq!(
+            layer.state, 
+            MultiresolutionState::ENABLED | MultiresolutionState::SELCTED
+        );
+        assert_eq!(layer.opacity, 1.0);
+        assert!(layer.data.is_empty());
     }
 
     #[test]
