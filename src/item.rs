@@ -541,7 +541,7 @@ impl BinRead for Item {
                 }
                 "BBOX" => subchunks.push(ItemSubchunk::BoundingBox(BoundingBox::read_be(reader)?)),
                 _ => {
-                    let mut data = Vec::with_capacity(header.size as usize);
+                    let mut data: Vec<u8> = vec![0u8;header.size as usize];
                     reader.read_exact(&mut data)?;
                     subchunks.push(ItemSubchunk::Unknown((header, data)));
                 }

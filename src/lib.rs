@@ -333,7 +333,7 @@ impl LuxologyFile {
                     chunk_header.size,
                 )?)),
                 _ => {
-                    let mut chunk_data: Vec<u8> = Vec::with_capacity(chunk_header.size as usize);
+                    let mut chunk_data: Vec<u8> = vec![0u8;chunk_header.size as usize];
                     reader.read_exact(&mut chunk_data)?;
                     chunks.push(Chunk::Unknown((chunk_header, chunk_data)));
                 }
