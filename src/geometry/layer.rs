@@ -122,39 +122,54 @@ bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct MultiresolutionState: u32 {
         const ENABLED = 1;
-        const SELCTED = 2;
+        const SELECTED = 2;
     }
 }
 
-/// Sculpting Data for multiresolution layers
+/// Displacement data for multiresolution layers
 #[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
 #[bw(big)]
-pub struct SculptData {
-    /// Vertex index
-    pub index: u32,
-    /// Offset
-    pub data: [f32; 3],
+pub struct DisplacementVector {
+    /// Point index into the subdivided geometry
+    pub point_index: u32,
+    /// Displacement offset
+    pub offset: [f32; 3],
 }
 
-// Optional data for layers, mostly unknown what the fields mean.
+/// Multiresolution Sculpt Layer
+///
+/// According to lxmesh.h in the lxsdk this was added in Modo 901
+/// "Multi-Resolution layers are new displacement data for 901. Displacement
+/// vectors in layers are composited based on the opacity ratio."
 #[derive(BinRead, BinWrite, Debug)]
 #[br(big)]
 #[bw(big)]
-pub struct Multiresolution {
+pub struct MultiresolutionLayer {
     #[br(align_after = 2)]
     #[bw(align_after = 2)]
     pub name: NullString,
+
     pub num_points: u32,
-    pub num_sculpt: u32,
+
+    pub displacement_count: u32,
+
+    /// The active layer will be marked as SELECTED, users can also disable layers
+    /// by clicking the eye icon in the sculpt layers UI in Modo.
     #[br(map=|mask: u32| MultiresolutionState::from_bits_retain(mask))]
     #[bw(map=|mask: &MultiresolutionState| mask.bits())]
     pub state: MultiresolutionState,
+
+    // Unknown bytes between the state and opacity
     pub unk0: u32,
+
     pub opacity: f32,
-    pub unk1: [u32; 3], // had 12 u8 prior....
-    #[br(count=num_sculpt)]
-    pub data: Vec<SculptData>,
+
+    // Unknown bytes after opacity and before the displacements
+    pub unk1: [u32; 3],
+
+    #[br(count=displacement_count)]
+    pub displacements: Vec<DisplacementVector>,
 }
 
 /// Layer (`LAYR`)
@@ -182,7 +197,10 @@ pub struct Layer {
     #[bw(align_after = 2)]
     pub name: NullString,
 
-    // Legacy, unused - often 0xffff
+    /// Legacy parent index for LWO2 compatibility, always -1 (0xffff).
+    ///
+    /// Parentage is defined by a LINK subchunk with graph "parent"
+    /// (`LXsGRAPH_PARENT`, lxidef.h) on the ITEM chunk instead.
     pub parent: u16,
 
     /// Specifies to what degree an SDS model is divided.
@@ -194,10 +212,6 @@ pub struct Layer {
     /// 3x3 Matrix for scale and rotation (I think, only seen as identity in all samples )
     pub matrix: [f32; 9],
 
-    // Documentation says we have a scale pivot f32;3, and 6 unused u32, but they all smell like
-    // floats. So can only assume they should be combined into one 3x3 matrix
-    // pub scale_pivot: [f32; 3],
-    // pub unused: [u32; 6],
     pub reference: u32,
 
     /// Controls the number of polygons used when parametrically defining a surface with curves.
@@ -213,13 +227,13 @@ pub struct Layer {
     #[br(if(flags.contains(LayerFlag::MULTIRESOLUTION)))]
     #[bw(
         if(flags & LayerFlag::MULTIRESOLUTION.bits() != 0),
-        try_calc=u32::try_from(sculpt_data.len())
+        try_calc=u32::try_from(displacements.len())
     )]
-    pub sculpt_records: u32,
+    pub displacement_count: u32,
 
-    #[br(if(flags.contains(LayerFlag::MULTIRESOLUTION)), count=sculpt_records)]
+    #[br(if(flags.contains(LayerFlag::MULTIRESOLUTION)), count=displacement_count)]
     #[bw(if(flags & LayerFlag::MULTIRESOLUTION.bits() != 0))]
-    pub sculpt_data: Vec<SculptData>,
+    pub displacements: Vec<DisplacementVector>,
 
     /// Controls how finely a Catmull-Clark surface is subdivided.
     pub catmull_subdivision_level: u16,
@@ -244,11 +258,12 @@ pub struct Layer {
 
     #[br(if(flags.contains(LayerFlag::MULTIRESOLUTION)), count=num_layers)]
     #[bw(if(flags & LayerFlag::MULTIRESOLUTION.bits() != 0))]
-    pub multires: Vec<Multiresolution>,
+    pub multires: Vec<MultiresolutionLayer>,
 
+    // Unknown tailing two bytes only found when layer is multiresolution
     #[br(if(flags.contains(LayerFlag::MULTIRESOLUTION)))]
     #[bw(if(flags & LayerFlag::MULTIRESOLUTION.bits() != 0))]
-    pub mulres_tail: u16, // should be the last two bytes
+    pub mulres_tail: u16,
 
     #[br(ignore)]
     #[bw(ignore)]
@@ -1071,26 +1086,27 @@ mod tests {
         // I will ignore all fields for LAYR except those for the multiresolution
         // layers in this test.
 
-        assert!(layer.sculpt_data.is_empty());
+        assert!(layer.displacements.is_empty());
         
         assert_eq!(layer.num_layers, 3);
 
         assert_eq!(layer.multires[0].name, "Layer 0".into());
         assert_eq!(layer.multires[0].num_points, 98u32);
-        assert_eq!(layer.multires[0].num_sculpt, 0u32);
+        assert_eq!(layer.multires[0].displacement_count, 0u32);
+        assert_eq!(layer.multires[0].opacity, 0.15f32);
         assert_eq!(layer.multires[0].state, MultiresolutionState::ENABLED);
 
         assert_eq!(layer.multires[1].name, "Layer 1".into());
         assert_eq!(layer.multires[1].num_points, 98u32);
-        assert_eq!(layer.multires[1].num_sculpt, 0u32);
+        assert_eq!(layer.multires[1].displacement_count, 0u32);
         assert!(layer.multires[1].state.is_empty());
         
         assert_eq!(layer.multires[2].name, "Layer 2".into());
         assert_eq!(layer.multires[2].num_points, 98u32);
-        assert_eq!(layer.multires[2].num_sculpt, 0u32);
+        assert_eq!(layer.multires[2].displacement_count, 0u32);
         assert_eq!(
             layer.multires[2].state,
-            MultiresolutionState::ENABLED|MultiresolutionState::SELCTED
+            MultiresolutionState::ENABLED|MultiresolutionState::SELECTED
         );
 
         // Final check we did consume all bytes for the layer chunk
@@ -1119,17 +1135,17 @@ mod tests {
             0x00, 0x00, 0x00, 0x00
         ]);
 
-        let layer = Multiresolution::read_be(&mut reader).unwrap();
+        let layer = MultiresolutionLayer::read_be(&mut reader).unwrap();
 
         assert_eq!(layer.name, "Layer 0".into());
         assert_eq!(layer.num_points, 0);
-        assert_eq!(layer.num_sculpt, 0);
+        assert_eq!(layer.displacement_count, 0);
         assert_eq!(
             layer.state, 
-            MultiresolutionState::ENABLED | MultiresolutionState::SELCTED
+            MultiresolutionState::ENABLED | MultiresolutionState::SELECTED
         );
         assert_eq!(layer.opacity, 1.0);
-        assert!(layer.data.is_empty());
+        assert!(layer.displacements.is_empty());
     }
 
     #[test]
