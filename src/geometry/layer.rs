@@ -347,6 +347,7 @@ pub struct VertexMapParameter {
 pub struct VertexMap {
     pub kind: ID4,
     pub dimension: u16,
+    #[bw(align_after = 2)]
     pub name: NullString,
     pub data: Vec<(VX, Vec<f32>)>,
 }
@@ -411,6 +412,7 @@ impl BinRead for VertexMap {
 pub struct VertexEdgeMap {
     pub kind: ID4,
     pub dimension: u16,
+    #[bw(align_after = 2)]
     pub name: NullString,
     pub data: Vec<(VX, VX, Vec<f32>)>,
 }
@@ -479,6 +481,7 @@ impl BinRead for VertexEdgeMap {
 pub struct DiscontinuousVertexMap {
     pub kind: ID4,
     pub dimension: u16,
+    #[bw(align_after = 2)]
     pub name: NullString,
     pub data: Vec<(VX, VX, Vec<f32>)>,
 }
