@@ -26,7 +26,7 @@ mod utils;
 pub use primitives::{ChunkHeader, ID4};
 use utils::write_chunk;
 
-use animation::{Action, Envelope};
+use animation::{Action, Envelope, Bake};
 use geometry::layer::{
     BoundingBox, DiscontinuousVertexMap, Layer, Points, PolygonList, PolygonTagMapping,
     VertexEdgeMap, VertexMap, VertexMapParameter,
@@ -193,6 +193,7 @@ pub enum Chunk {
     Envelope(Envelope),
     Action(Action),
     DataBlock(DataBlock),
+    Bake(Bake),
     Audio(Audio),
     Unknown((ChunkHeader, Vec<u8>)),
 }
@@ -328,6 +329,7 @@ impl LuxologyFile {
                     reader,
                     chunk_header.size,
                 )?)),
+                "BAKE" => chunks.push(Chunk::Bake(Bake::read_be_args(reader, chunk_header.size)?)),
                 "AANI" => chunks.push(Chunk::Audio(Audio::read_be_args(
                     reader,
                     chunk_header.size,
@@ -460,6 +462,9 @@ impl LuxologyFile {
                 }
                 Chunk::DataBlock(data) => {
                     write_chunk(&mut bw, ID4::from_str("DATA").unwrap(), &data)?
+                }
+                Chunk::Bake(bake) => {
+                    write_chunk(&mut bw, ID4::from_str("BAKE").unwrap(), &bake)?
                 }
                 Chunk::Audio(audio) => {
                     write_chunk(&mut bw, ID4::from_str("AANI").unwrap(), &audio)?

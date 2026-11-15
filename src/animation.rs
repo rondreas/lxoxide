@@ -7,6 +7,65 @@ use std::fmt;
 use std::io::{Read, Seek, Write};
 use std::str::FromStr;
 
+#[derive(BinWrite, Debug)]
+#[bw(big)]
+pub struct Bake {
+    pub reference: u32,
+
+    pub sample_count: u32,
+
+    pub start_time: f32,
+    
+    pub samples_per_second: f32,
+
+    #[bw(align_after = 2)]
+    pub name: NullString,
+
+    // The value type of the sample data, 'integer', 'matrix4' etc: see lxvalue.h
+    #[bw(align_after = 2)]
+    pub kind: NullString,
+
+    // It looks like one can through the api create new custom value types so to
+    // support this we will just store the raw byte and let the end user deal with
+    // how to read the different types. We could in the future make a helper parsing
+    // all the known default ones that comes with Modo by default.
+    pub samples: Vec<u8>,
+}
+
+impl BinRead for Bake {
+    type Args<'a> = u32;
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        _endian: Endian,
+        size: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let reference = u32::read_be(reader)?;
+        let sample_count = u32::read_be(reader)?;
+        let start_time = f32::read_be(reader)?;
+        let samples_per_second = f32::read_be(reader)?;
+        let name = read_aligned_nullstring(reader)?;
+        let kind = read_aligned_nullstring(reader)?;
+
+        // We know the size of the fixed fields to be 16 bytes, then we have two
+        // nullstrings that we have to ensure size accounts for the one or two
+        // padding null bytes.
+        let sample_size = size as usize - (16 + ((name.len() + 2) & !1) + ((kind.len() + 2) & !1));
+        let mut samples = vec![0u8; sample_size];
+        reader.read_exact(&mut samples)?;
+
+        Ok(Bake {
+            reference,
+            sample_count,
+            start_time,
+            samples_per_second,
+            name,
+            kind,
+            samples
+        })
+    }
+}
+
 #[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
 #[br(big, repr=u32)]
 #[bw(big, repr=u32)]
