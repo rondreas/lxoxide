@@ -162,6 +162,7 @@ pub enum ParseError {
 }
 
 /// Enumerator of all known chunks as well as Unknown to store unhandled chunks
+#[derive(Debug)]
 pub enum Chunk {
     Preview(Preview),
     Description(Description),
@@ -198,12 +199,46 @@ pub enum Chunk {
     Unknown((ChunkHeader, Vec<u8>)),
 }
 
+#[derive(Debug)]
 pub struct LuxologyFile {
     header: Header,
     chunks: Vec<Chunk>,
 }
 
 impl LuxologyFile {
+    /// Get slice for chunks in order
+    pub fn chunks(&self) -> &[Chunk] { &self.chunks }
+
+    pub fn header(&self) -> &Header { &self.header }
+
+    pub fn version(&self) -> Option<&Version> {
+        self.chunks.iter().find_map(|chunk| match chunk {
+            Chunk::Version(version) => Some(version),
+            _ => None
+        })
+    }
+
+    pub fn application_version(&self) -> Option<&ApplicationVersion> {
+        self.chunks().iter().find_map(|chunk| match chunk {
+            Chunk::ApplicationVersion(version) => Some(version),
+            _ => None,
+        })
+    }
+
+    pub fn layers(&self) -> impl Iterator<Item = &Layer> {
+        self.chunks.iter().filter_map(|chunk| match chunk {
+            Chunk::Layer(layer) => Some(&**layer),
+            _ => None,
+        })
+    }
+
+    pub fn items(&self) -> impl Iterator<Item = &Item> {
+        self.chunks.iter().filter_map(|chunk| match chunk {
+            Chunk::Item(item) => Some(item),
+            _ => None,
+        })
+    }
+
     fn parse<R: Read + Seek>(reader: &mut R, total_size: u64) -> Result<LuxologyFile, ParseError> {
         let header: Header = reader.read_be()?;
 
