@@ -49,3 +49,35 @@ simulate start:0.0 end:2.5 preroll:0.0
 
 scene.saveAs "path/to/fixtures/falling_cube.lxo" $LXOB false
 ```
+
+## default_11_2v3.lxo and default_12_0v1.lxo
+
+Fixtures made to show when LAYR was updated to read/write smoothing mode. Files saved in Modo prior to version 12 will have the smoothing field on layer missing.
+
+```lxm
+mesh.smoothMode mode:disabledDeformers
+scene.saveAs "path/to/fixtures/default_11_2v3.lxo" $LXOB false
+```
+
+Opening the saved file in new session same version will show this field is not saved.
+
+```lxm
+scene.open "path/to/fixtures/default_11_2v3.lxo"
+mesh.smoothMode mode:?
+: alwaysEnabled
+```
+
+Same steps in version 12 and now the field is serialised.
+
+```lxm
+mesh.smoothMode mode:disabledDeformers
+scene.saveAs "path/to/fixtures/default_12_0v0.lxo" $LXOB false
+```
+
+In this version we will get the value we set smooth mode to.
+
+```lxm
+scene.open "path/to/fixtures/default_12_0v1.lxo"
+mesh.smoothMode mode:?
+: disabledDeformers
+```
