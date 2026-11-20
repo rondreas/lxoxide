@@ -60,18 +60,22 @@ bitflags! {
         const LINEAR_UV         = 0b0000_0000_1000_0000;
         /// Allows stepping through subdivision levels when sculpting Pixar SDS models
         const MULTIRESOLUTION   = 0b0010_0000_0000_0000;
-        const DEFAULT           = Self::VISIBLE.bits() | Self::FOREGROUND.bits();
     }
 }
 
+impl Default for LayerFlag {
+    fn default() -> Self { return LayerFlag::VISIBLE | LayerFlag::FOREGROUND }
+}
+
 /// Determines how to move points on the boundaries of a Catmull-Clark Subdivision Surface mesh.
-#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, Default, PartialEq, Eq)]
 #[br(repr=u16)]
 #[bw(repr=u16)]
 pub enum BoundaryRules {
     /// All positions on the boundary are moved by the smooth rule of Pixar Subdivision Surfaces.
     SmoothAll,
     /// Points with two incident edges (valence = 2) are moved by the crease rule; others are smoothed by two boundary edges.
+    #[default]
     CreaseAll,
     /// Points with two incident edges (valence = 2) are moved by the smooth rule; others are smoothed by two boundary edges.
     CreaseEdges,
@@ -106,11 +110,12 @@ pub struct LayerGeometry {
     pub polygons: BTreeMap<ID4, PolygonGroup>,
 }
 
-#[derive(BinRead, BinWrite, Debug, PartialEq, Eq)]
+#[derive(BinRead, BinWrite, Debug, Default, PartialEq, Eq)]
 #[br(repr=u16)]
 #[bw(repr=u16)]
 pub enum Smoothing {
     /// Smooths the entire layer at all times.
+    #[default]
     AlwaysEnabled,
     /// Disables smoothing only when a deformer is attached to the item layer.
     DisabledWithDeformers,
@@ -761,7 +766,7 @@ mod tests {
         let layer: Layer = reader.read_be().unwrap();
 
         assert_eq!(layer.index, 0);
-        assert_eq!(layer.flags, LayerFlag::DEFAULT);
+        assert_eq!(layer.flags, LayerFlag::default());
         assert_eq!(layer.pivot, [0.0f32;3]);
         assert!(layer.name.is_empty());
         assert_eq!(layer.parent, 0xffff);
@@ -980,7 +985,7 @@ mod tests {
         let layer = Layer::read_be(&mut reader).unwrap();
 
         assert_eq!(layer.index, 2);
-        assert_eq!(layer.flags, LayerFlag::DEFAULT | LayerFlag::MULTIRESOLUTION);
+        assert_eq!(layer.flags, LayerFlag::default() | LayerFlag::MULTIRESOLUTION);
         assert_eq!(layer.pivot, [0f32; 3]);
         assert_eq!(layer.name, "Multiresolution".into());
         assert_eq!(layer.parent, 0xffff);
@@ -1017,7 +1022,7 @@ mod tests {
         let layer = Layer::read_be(&mut reader).unwrap();
 
         assert_eq!(layer.index, 1);
-        assert_eq!(layer.flags, LayerFlag::DEFAULT | LayerFlag::MULTIRESOLUTION);
+        assert_eq!(layer.flags, LayerFlag::default() | LayerFlag::MULTIRESOLUTION);
         assert_eq!(layer.pivot, [0f32; 3]);
         assert!(layer.name.is_empty());
         assert_eq!(layer.parent, 0xffff);
