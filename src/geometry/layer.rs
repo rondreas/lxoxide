@@ -64,7 +64,7 @@ bitflags! {
 }
 
 impl Default for LayerFlag {
-    fn default() -> Self { return LayerFlag::VISIBLE | LayerFlag::FOREGROUND }
+    fn default() -> Self { LayerFlag::VISIBLE | LayerFlag::FOREGROUND }
 }
 
 /// Determines how to move points on the boundaries of a Catmull-Clark Subdivision Surface mesh.
@@ -110,6 +110,8 @@ pub struct LayerGeometry {
     pub polygons: BTreeMap<ID4, PolygonGroup>,
 }
 
+/// Value introduced in Modo version 12.0, files written before will not have this
+/// field on layer chunk. In Modo you can set this value with `mesh.smoothMode`.
 #[derive(BinRead, BinWrite, Debug, Default, PartialEq, Eq)]
 #[br(repr=u16)]
 #[bw(repr=u16)]
@@ -187,8 +189,8 @@ pub struct MultiresolutionLayer {
 /// included in this layer until another layer chunk is encountered
 #[binrw]
 #[derive(Debug)]
-#[br(big)]
-#[bw(big)]
+#[br(big, import(build: Option<u32>))]
+#[bw(big, import(build: Option<u32>))]
 pub struct Layer {
     pub index: u16,
 
@@ -254,6 +256,8 @@ pub struct Layer {
     /// Stores normal vectors in memory to increase brush stroke performance when sculpting a multi-resolution mesh.
     pub cache_normal_vectors: bool,
 
+    #[br(if(build.unwrap_or(484290u32) >= 484290u32, Smoothing::default()))]
+    #[bw(if(build.unwrap_or(484290u32) >= 484290u32))]
     pub smoothing: Smoothing,
 
     /// Number of multiresolution layers

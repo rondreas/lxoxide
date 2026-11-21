@@ -24,7 +24,7 @@ pub mod primitives;
 mod utils;
 
 pub use primitives::{ChunkHeader, ID4};
-use utils::write_chunk;
+use utils::{write_chunk, write_chunk_args};
 
 use animation::{Action, Envelope, Bake};
 use geometry::layer::{
@@ -305,7 +305,16 @@ impl LuxologyFile {
                     reader,
                     chunk_header.size,
                 )?)),
-                "LAYR" => chunks.push(Chunk::Layer(Box::new(Layer::read_be(reader)?))),
+                "LAYR" => {
+                    let build = chunks.iter().find_map(|c| match c {
+                        Chunk::ApplicationVersion(appv) => Some(appv.build),
+                        _ => None
+                    });
+                    chunks.push(Chunk::Layer(Box::new(Layer::read_be_args(
+                            reader,
+                            (build,)
+                        )?)))
+                }
                 "PNTS" => chunks.push(Chunk::Points(Points::read_be_args(
                     reader,
                     (chunk_header.size / 12,),
@@ -408,6 +417,8 @@ impl LuxologyFile {
         let mut buf = Vec::new();
         let mut bw = Cursor::new(&mut buf);
 
+        let build = self.application_version().map(|appv| appv.build);
+
         for chunk in &self.chunks {
             match chunk {
                 Chunk::Preview(preview) => {
@@ -445,7 +456,9 @@ impl LuxologyFile {
                 Chunk::ChannelNames(channel_names) => {
                     write_chunk(&mut bw, ID4::from_str("CHNM").unwrap(), &channel_names)?
                 }
-                Chunk::Layer(layer) => write_chunk(&mut bw, ID4::from_str("LAYR").unwrap(), layer)?,
+                Chunk::Layer(layer) => {
+                    write_chunk_args(&mut bw, ID4::from_str("LAYR").unwrap(), layer, (build,))?;
+                }
                 Chunk::Points(points) => {
                     write_chunk(&mut bw, ID4::from_str("PNTS").unwrap(), &points)?
                 }

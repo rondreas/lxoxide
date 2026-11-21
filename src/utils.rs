@@ -68,6 +68,32 @@ where
     Ok(())
 }
 
+pub fn write_chunk_args<W: Write + Seek, T: BinWrite>(
+    writer: &mut W,
+    kind: ID4,
+    value: &T,
+    args: T::Args<'_>,
+) -> BinResult<()>
+where
+    for<'a> T::Args<'a>: Default,
+{
+    let mut buf = Cursor::new(Vec::new());
+    value.write_be_args(&mut buf, args)?;
+    let mut data = buf.into_inner();
+
+    if data.len() % 2 != 0 {
+        data.push(0);
+    }
+
+    ChunkHeader {
+        kind,
+        size: data.len() as u32,
+    }
+    .write_be(writer)?;
+    writer.write_all(&data)?;
+    Ok(())
+}
+
 // Setting this to allow dead code as I think I will likely use it in future reading
 // some chunks in full then parsing it's bytes.
 #[allow(dead_code)]

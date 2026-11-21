@@ -4,6 +4,7 @@ use::binrw::NullString;
 use lxoxide::meta::{ApplicationVersion, Version};
 use lxoxide::animation::Bake;
 use lxoxide::item::{Item, ItemTag};
+use lxoxide::geometry::layer::{Layer, Smoothing};
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::collections::HashMap;
@@ -14,6 +15,71 @@ fn default() {
     path.push("tests/fixtures/default.lxo");
 
     let lxo = LuxologyFile::from_path(&path).unwrap();
+
+    let mut writer = Cursor::new(vec![]);
+    lxo.to_writer(&mut writer).unwrap();
+    let bytes = std::fs::read(&path).unwrap();
+
+    assert_eq!(writer.into_inner(), bytes);
+}
+
+#[test]
+fn default_11_2_v3() {
+    // Fixture to show 'smoothing' not being serialised until version
+    // 12. So from my previous parsing of LAYR chunk this will be two
+    // bytes short and panic when attempting to read the following
+    // IT from next ITEM chunk as a smoothing enum.
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("tests/fixtures/default_11_2v3.lxo");
+
+    let lxo = LuxologyFile::from_path(&path).unwrap();
+
+    // We optionally now include smoothing field and branch on appv.build
+    // as we know this version was the last without this field.
+    let app_version: &ApplicationVersion = lxo.application_version().expect(
+        "The file should have an 36 bytes APPV chunk at 54 byte offset"
+    );
+
+    // Checking the build number that we check to read or nor read smoothing
+    assert_eq!(
+        app_version.build,
+        484_289u32,
+        "Expected build number 484289 read {0}", app_version.build
+    );
+
+    let layer: &Layer = lxo.layers().next().expect(
+        "There should be a 96 byte LAYR chunk at 4804 byte offset"
+    );
+
+    assert_eq!(layer.smoothing, Smoothing::AlwaysEnabled);
+
+    let mut writer = Cursor::new(vec![]);
+    lxo.to_writer(&mut writer).unwrap();
+    let bytes = std::fs::read(&path).unwrap();
+
+    assert_eq!(writer.into_inner(), bytes);
+}
+
+#[test]
+fn default_12_0_v1() {
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("tests/fixtures/default_12_0v1.lxo");
+
+    let lxo = LuxologyFile::from_path(&path).unwrap();
+
+    let app_version: &ApplicationVersion = lxo.application_version().expect(
+        "The file should have an 36 bytes APPV chunk at 54 byte offset"
+    );
+
+    assert!(app_version.build > 484_289u32,
+        "Expected build number greater than 484289, read {0}", app_version.build
+    );
+
+    let layer: &Layer = lxo.layers().next().expect(
+        "There should be a 98 byte LAYR chunk at 4820 byte offset"
+    );
+
+    assert_eq!(layer.smoothing, Smoothing::DisabledWithDeformers);
 
     let mut writer = Cursor::new(vec![]);
     lxo.to_writer(&mut writer).unwrap();
